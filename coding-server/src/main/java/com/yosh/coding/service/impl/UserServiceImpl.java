@@ -88,7 +88,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (request.getSession().getAttribute(UserContants.USER_LOGIN_STATE) == null)
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
 
-        request.removeAttribute(UserContants.USER_LOGIN_STATE);
+        request.getSession().removeAttribute(UserContants.USER_LOGIN_STATE);
     }
     @Override
     public UserVO getUserVO(User user) {
