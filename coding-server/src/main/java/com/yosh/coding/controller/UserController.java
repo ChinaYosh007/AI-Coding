@@ -81,10 +81,10 @@ public class UserController {
      * 根据 id 获取包装类
      */
     @GetMapping("/get/vo")
+    @AuthCheck(mustRole = UserContants.ADMIN_ROLE)
     public BaseResponse<UserVO> getUserVOById(long id) {
 
-        BaseResponse<User> response = getUserById(id);
-        User user = response.getData();
+        User user = userService.getById(id);
         return ResultUtils.success(userService.getUserVO(user));
     }
 
