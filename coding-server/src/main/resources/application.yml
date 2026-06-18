@@ -1,0 +1,16 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+spring:
+  application:
+    name: AI-Coding
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_URL}:${MYSQL_PORT}/${MYSQL_DATABASE}
+    username: ${MYSQL_ACCOUNT}
+    password: ${MYSQL_PASSWORD}
+logging:
+  level:
+    root: info
+    com.yosh.coding: debug
