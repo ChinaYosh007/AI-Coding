@@ -6,6 +6,8 @@ target/
 
 ### 敏感配置 ###
 .env
+application-local.yml
+tmp
 coding-server/.env
 .env.local
 
