@@ -10,7 +10,7 @@ import com.yosh.model.enums.CodeGenTypeEnum;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-
+@Deprecated
 public class OutputFileCore {
     private static final String URL = System.getProperty("user.dir") + "/src/main/resources/static/tmp/output_file";
     private static String builderPath(String prefix){
@@ -23,8 +23,6 @@ public class OutputFileCore {
     private static  void writeFile(String dir,String fileName,String resource) {
         String file = dir + File.separator + fileName;
         FileUtil.writeString(resource,file, StandardCharsets.UTF_8);
-
-
     }
 
     public static File saveHTMLCode(HtmlCodeResult resource){
