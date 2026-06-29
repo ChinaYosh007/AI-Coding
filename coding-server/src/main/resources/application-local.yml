@@ -1,25 +1,5 @@
-server:
-  port: 8080
-  servlet:
-    context-path: /api
-spring:
-  application:
-    name: AI-Coding
-  datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${MYSQL_URL}:${MYSQL_PORT}/${MYSQL_DATABASE}
-    username: ${MYSQL_ACCOUNT}
-    password: ${MYSQL_PASSWORD}
-logging:
-  level:
-    root: info
-    com.yosh.coding: debug
-# AI
-langchain4j:
-  open-ai:
-    chat-model:
-      api-key: sk-a8a6670ec54b436c964d74307fdf6ab4
-    streaming-chat-model:
-      api-key: sk-a8a6670ec54b436c964d74307fdf6ab4
+# application-local.yml
+# 本地开发环境配置(仅写与主配置的差异部分)
+# 当前本地环境与默认配置无差异,保留此文件为空以便后续扩展
 
 

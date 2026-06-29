@@ -17,7 +17,7 @@ public class AiCodeGeneratorFacadeTest {
     @Resource
     private AiCodeGeneratorFacade aiCodeGeneratorFacade;
     public static final String message = """
-            生成一个青春少女系列的网站，女主是jk系列
+            生成奥特曼大全的网站，页面要牛逼
             """;
     @Test
     public void chatWithSaver(){

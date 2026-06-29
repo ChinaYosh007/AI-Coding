@@ -2,6 +2,9 @@ package com.yosh.coding.core;
 
 import com.yosh.coding.artificalIntelligence.model.HtmlCodeResult;
 import com.yosh.coding.artificalIntelligence.model.MultiFileCodeResult;
+import com.yosh.coding.core.parser.CodeParserExcutor;
+import com.yosh.coding.core.parser.MultiFIleCodeParser;
+import com.yosh.model.enums.CodeGenTypeEnum;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -28,7 +31,7 @@ class CodeParserTest {
 
                 随便写一段描述
                 """;
-        HtmlCodeResult result = CodeParser.parseHtmlCode(codeContent);
+        HtmlCodeResult result = (HtmlCodeResult) CodeParserExcutor.executeCode(codeContent, CodeGenTypeEnum.HTML);
         assertNotNull(result);
         assertNotNull(result.getHtmlCode());
     }
@@ -65,7 +68,7 @@ class CodeParserTest {
 
                 文件创建完成！
                 """;
-        MultiFileCodeResult result = CodeParser.parseMultiFileCode(codeContent);
+        MultiFileCodeResult result = (MultiFileCodeResult) CodeParserExcutor.executeCode(codeContent, CodeGenTypeEnum.MULTI_FILE);
         assertNotNull(result);
         assertNotNull(result.getHtmlCode());
         assertNotNull(result.getCssCode());

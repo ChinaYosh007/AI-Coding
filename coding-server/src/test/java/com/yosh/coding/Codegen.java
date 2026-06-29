@@ -30,7 +30,7 @@ public class Codegen {
     private String  password;
     @Value("${MYSQL_DATABASE}")
     private String database;
-    private static final String[] TABLE_NAMES = {"user"};
+    private static final String[] TABLE_NAMES = {"app"};
     @Test
     public  void test() {
         //配置数据源
