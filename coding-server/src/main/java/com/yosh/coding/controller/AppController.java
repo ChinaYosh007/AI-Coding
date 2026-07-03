@@ -67,8 +67,8 @@ public class AppController {
         App app = new App();
         BeanUtil.copyProperties(appAddRequest, app);
         app.setUserId(loginUser.getId());
-        // 应用名称暂时为 initPrompt 前 12 位
-        app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
+        // 让AI根据内容生成合适的标题
+        app.setAppName(appService.generateAppName(initPrompt));
         // 暂时设置为多文件生成
         app.setCodeGenType(CodeGenTypeEnum.MULTI_FILE.getValue());
         // 插入数据库
@@ -300,14 +300,20 @@ public class AppController {
                         .build();
             }).concatWith(Mono.just(
                     ServerSentEvent.<String>builder()
-                            .data("done")   // 用 event type 区分
+                            .event("done")
+                            .data("")
+                            .build()
+            )).onErrorResume(e -> Flux.just(
+                    ServerSentEvent.<String>builder()
+                            .event("business-error")
+                            .data(JSONUtil.toJsonStr(Map.of("message", e.getMessage())))
                             .build()
             ));
         } catch (Exception e) {
             return Flux.just(
                     ServerSentEvent.<String>builder()
-                            .event("error")   // 用 event type 区分
-                            .data(e.getMessage())
+                            .event("business-error")
+                            .data(JSONUtil.toJsonStr(Map.of("message", e.getMessage())))
                             .build());
         }
 

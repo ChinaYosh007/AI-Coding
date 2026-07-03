@@ -35,5 +35,6 @@ public interface AiCodeGeneratorService {
     @SystemMessage(fromResource = "prompt/code-multi-file-html.txt")
     Flux<String> generateMultiFileCodeStream(@MemoryId Long memoryId, @UserMessage String userMessage);
 
-
+    @SystemMessage("根据初始化提示生成应用名称，以JSON格式返回，例如：{\"appName\": \"示例应用\"}")
+    String generateAppName(String initPrompt);
 }

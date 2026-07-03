@@ -49,6 +49,7 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
     if(msgType == null) throw   new BusinessException(ErrorCode.OPERATION_ERROR,"msgType isn't at this point");
     ChatHistory chatHistory = ChatHistory.builder()
             .appId(appId)
+            .userId(userId)
             .message(message)
             .messageType(messageType)
             .createTime(LocalDateTime.now())
