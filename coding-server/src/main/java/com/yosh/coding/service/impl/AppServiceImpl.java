@@ -78,9 +78,12 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(GenType);
         ThrowUtils.throwIf(codeGenTypeEnum == null,ErrorCode.ERROR_QUERY,"this file type current isn't brace!!!");
         chatHistoryService.addChatHistory(appId,loginUser.getId(),msg, MessageTypeEnum.USER.getValue());
-        AppVersion reservedVersion = reserveAppVersion(appId, msg, app.getCodeGenType());
-        Long version = reservedVersion.getVersion();
-        // generate and save code
+
+        // 预占版本号：先生成一条 version 记录并拿到版本号，保证后续文件保存路径与 DB 一致
+        AppVersion newVersion = reserveAppVersion(appId, msg, app.getCodeGenType());
+        Long version = newVersion.getVersion();
+
+        // generate and save code（使用预占的版本号，文件将存到与 DB sourcePath 一致的目录）
         Flux<String> stringFlux = aiCodeGeneratorFacade.generateAndSaveCodeStream(msg, codeGenTypeEnum, appId, version);
         StringBuilder respone = new StringBuilder();
         return stringFlux.map(dunk -> {
@@ -91,17 +94,25 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
             if (StrUtil.isNotBlank(res)) {
                 chatHistoryService.addChatHistory(appId, loginUser.getId(), res, MessageTypeEnum.AI.getValue());
             }
-            reservedVersion.setAiResponse(res);
-            appVersionService.updateById(reservedVersion);
+            newVersion.setAiResponse(res);
+            appVersionService.updateById(newVersion);
         }).doOnError(e -> {
             String err = "Ai Respone is error" + e;
             chatHistoryService.addChatHistory(appId, loginUser.getId(), err, MessageTypeEnum.AI.getValue());
-            if (reservedVersion.getId() != null) {
-                appVersionService.removeById(reservedVersion.getId());
+            // 出错时回滚预占的版本记录
+            if (newVersion.getId() != null) {
+                appVersionService.removeById(newVersion.getId());
             }
         });
     }
 
+    /**
+     * 普通对话不应该保存
+     * @param appId
+     * @param msg
+     * @param codeGenType
+     * @return
+     */
     private AppVersion reserveAppVersion(Long appId, String msg, String codeGenType) {
         String lockKey = AppConstant.APP_VERSION_LOCK_KEY_PREFIX + appId;
         RLock lock = redissonClient.getLock(lockKey);
@@ -119,9 +130,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
             String sourceDir = codeGenType + "_" + appId + "_" + version;
             String sourcePath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + sourceDir;
             newVersion.setSourcePath(sourcePath);
+            FileUtil.mkdir(sourcePath);
             boolean saveResult = appVersionService.save(newVersion);
             ThrowUtils.throwIf(!saveResult, ErrorCode.OPERATION_ERROR, "save app version failed");
             return newVersion;
+
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "get app version lock failed");
@@ -255,6 +268,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         return String.format("%s/%s", AppConstant.CODE_DEPLOY_HOST, devKey);
 
 
+    }
+
+    @Override
+    public String generateAppName(String initPrompt) {
+        return aiCodeGeneratorFacade.generateAppName(initPrompt);
     }
 
 

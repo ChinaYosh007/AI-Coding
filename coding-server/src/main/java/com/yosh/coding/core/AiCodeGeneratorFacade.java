@@ -39,10 +39,6 @@ public class AiCodeGeneratorFacade {
                     if (!signalType.equals(SignalType.CANCEL)) {
                         try{
                             String content = str.toString();
-                            if (content.isEmpty()) {
-                                log.warn("No content received, skipping save");
-                                return;
-                            }
                             log.info("Code content length: {}", content.length());
                             Object exec = CodeParserExcutor.executeCode(content,type);
                             log.info("Code parsed successfully: {}", exec.getClass().getSimpleName());
@@ -105,4 +101,7 @@ public class AiCodeGeneratorFacade {
         };
     }
 
+    public String generateAppName(String initPrompt) {
+        return aiCodeGeneratorService.generateAppName(initPrompt);
+    }
 }
