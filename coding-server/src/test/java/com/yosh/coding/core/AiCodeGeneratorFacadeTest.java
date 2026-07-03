@@ -21,12 +21,14 @@ public class AiCodeGeneratorFacadeTest {
             """;
     @Test
     public void chatWithSaver(){
-        File file = aiCodeGeneratorFacade.generateAndSaveCode(message, CodeGenTypeEnum.MULTI_FILE);
+        Long appId = 1L;
+        File file = aiCodeGeneratorFacade.generateAndSaveCode(message, CodeGenTypeEnum.MULTI_FILE,appId,1L);
         Assertions.assertNotNull(file);
     }
     @Test
     public void chatWithSaverStream(){
-        Flux<String> file = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, CodeGenTypeEnum.HTML);
+        Long appId = 1L;
+        Flux<String> file = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, CodeGenTypeEnum.HTML,appId,1L);
         file.doOnNext(System.out::print)
                 .doOnComplete(()-> System.out.println("success")).blockLast();
 

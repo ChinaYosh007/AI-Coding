@@ -11,11 +11,10 @@ public class HtmlCodeTemplate extends CodeSaverTemplate<HtmlCodeResult> {
 
     @Override
     protected void saveFile(HtmlCodeResult res, String dir) {
-        writeFile(dir,"index,html", res.getHtmlCode());
+        writeFile(dir,"index.html", res.getHtmlCode());
     }
     @Override
     protected void valiedInput(HtmlCodeResult htmlCodeResult){
         super.valiedInput(htmlCodeResult);
-        System.out.println("my is child");
     }
 }

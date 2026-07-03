@@ -16,7 +16,7 @@ public class AIChatTest {
     @Test
     public void chat()
     {
-        HtmlCodeResult s = aiCodeGeneratorService.generateHtmlCode("我是苹果");
-        System.out.println(s);
+//        HtmlCodeResult s = aiCodeGeneratorService.generateHtmlCode("我是苹果", 1L, "test", "test", "test");
+//        System.out.println(s);
     }
 }

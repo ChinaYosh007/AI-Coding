@@ -12,6 +12,12 @@ spring:
     url: jdbc:mysql://${MYSQL_URL}:${MYSQL_PORT}/${MYSQL_DATABASE}
     username: ${MYSQL_ACCOUNT}
     password: ${MYSQL_PASSWORD}
+  data:
+    redis:
+      host: ${REDIS_URL}
+      port: ${REDIS_PORT}
+      password: ${REDIS_PASSWORD}
+      ttl: 2592000
 logging:
   level:
     root: info
