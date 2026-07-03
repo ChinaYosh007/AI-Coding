@@ -13,11 +13,11 @@ public class CodeFilleSaveExecutor {
     public static final HtmlCodeTemplate htmlCodeTemplate = new HtmlCodeTemplate();
     public static final MultiFileCodeTemplate multiFileCodeTemplate = new MultiFileCodeTemplate();
 
-    public static final File saveFile(Object res, CodeGenTypeEnum type){
+    public static final File saveFile(Object res, CodeGenTypeEnum type,Long appId,Long version){
         return switch (type){
-            case HTML ->  htmlCodeTemplate.saveCode((HtmlCodeResult) res);
-            case MULTI_FILE -> multiFileCodeTemplate.saveCode((MultiFileCodeResult) res);
-            default -> throw  new BusinessException(ErrorCode.SYSTEM_ERROR,"暂不支持该文件");
+            case HTML ->  htmlCodeTemplate.saveCode((HtmlCodeResult) res,appId,version);
+            case MULTI_FILE -> multiFileCodeTemplate.saveCode((MultiFileCodeResult) res,appId,version);
+            default -> throw  new BusinessException(ErrorCode.SYSTEM_ERROR,"暂不支持该文件类型");
         };
     }
 }

@@ -4,7 +4,10 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
 import com.yosh.model.dto.app.AppQueryRequest;
 import com.yosh.model.entity.App;
+import com.yosh.model.entity.User;
 import com.yosh.model.vo.AppVO;
+import com.yosh.model.vo.LoginUserVO;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 
@@ -21,4 +24,9 @@ public interface AppService extends IService<App> {
     QueryWrapper getQueryWrapper(AppQueryRequest appQueryRequest);
 
     List<AppVO> getAppVOList(List<App> appList);
+
+
+    Flux<String> chatToGenCode(Long appId, String message, LoginUserVO loginUser);
+
+    String developApp(Long appId, LoginUserVO user,Long version);
 }

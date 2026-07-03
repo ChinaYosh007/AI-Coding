@@ -1,25 +1,32 @@
 package com.yosh.coding.core.parser;
 
 import com.yosh.coding.artificalIntelligence.model.MultiFileCodeResult;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+@Slf4j
 public class MultiFIleCodeParser implements  CodeParser<MultiFileCodeResult>{
     private static final Pattern HTML_CODE_PATTERN = Pattern.compile("```html\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
     private static final Pattern CSS_CODE_PATTERN = Pattern.compile("```css\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
     private static final Pattern JS_CODE_PATTERN = Pattern.compile("```(?:js|javascript)\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
 
     @Override
-    /**
-     * 解析多文件代码（HTML + CSS + JS）
-     */
     public MultiFileCodeResult parseCode(String content) {
         MultiFileCodeResult result = new MultiFileCodeResult();
+        log.debug("Parsing code content length: {}", content.length());
+
         // 提取各类代码
         String htmlCode = extractCodeByPattern(content, HTML_CODE_PATTERN);
         String cssCode = extractCodeByPattern(content, CSS_CODE_PATTERN);
         String jsCode = extractCodeByPattern(content, JS_CODE_PATTERN);
+
+        log.debug("Extracted - HTML: {}, CSS: {}, JS: {}",
+                htmlCode != null ? htmlCode.length() : 0,
+                cssCode != null ? cssCode.length() : 0,
+                jsCode != null ? jsCode.length() : 0);
+
         // 设置HTML代码
         if (htmlCode != null && !htmlCode.trim().isEmpty()) {
             result.setHtmlCode(htmlCode.trim());
