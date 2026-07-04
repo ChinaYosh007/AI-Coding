@@ -77,4 +77,11 @@ public class ChatHistory implements Serializable {
     @Column(value = "isDelete", isLogicDelete = true)
     private Integer isDelete;
 
+    /**
+     * 上次时间
+     */
+    //非数据库字段标签
+    @Column(ignore = true)
+    private LocalDateTime lastCreateTime;
+
 }

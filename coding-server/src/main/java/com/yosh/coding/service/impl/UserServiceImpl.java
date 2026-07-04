@@ -13,6 +13,8 @@ import com.yosh.model.costants.UserContants;
 import com.yosh.model.dto.user.UserDTO;
 import com.yosh.model.dto.user.UserQueryRequest;
 import com.yosh.model.dto.user.UserRegisterRequest;
+import com.yosh.model.dto.user.UserUpdateMyRequest;
+import com.yosh.model.dto.user.UserUpdatePasswordRequest;
 import com.yosh.model.entity.User;
 import com.yosh.coding.mapper.UserMapper;
 import com.yosh.coding.service.UserService;
@@ -90,6 +92,76 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         request.getSession().removeAttribute(UserContants.USER_LOGIN_STATE);
     }
+
+    @Override
+    public boolean updateMyUser(UserUpdateMyRequest userUpdateMyRequest, HttpServletRequest request) {
+        if (userUpdateMyRequest == null) throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        if (userUpdateMyRequest.getUserName() == null
+                && userUpdateMyRequest.getUserAvatar() == null
+                && userUpdateMyRequest.getUserProfile() == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        if (userUpdateMyRequest.getUserName() != null && StrUtil.isBlank(userUpdateMyRequest.getUserName())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User name cannot be blank");
+        }
+
+        User loginUser = getSessionUser(request);
+        User user = new User();
+        user.setId(loginUser.getId());
+        user.setUserName(userUpdateMyRequest.getUserName());
+        user.setUserAvatar(userUpdateMyRequest.getUserAvatar());
+        user.setUserProfile(userUpdateMyRequest.getUserProfile());
+
+        boolean result = this.updateById(user);
+        if (BooleanUtil.isFalse(result)) throw new BusinessException(ErrorCode.OPERATION_ERROR);
+        refreshLoginUser(request, loginUser.getId());
+        return true;
+    }
+
+    @Override
+    public boolean updateMyPassword(UserUpdatePasswordRequest userUpdatePasswordRequest, HttpServletRequest request) {
+        if (userUpdatePasswordRequest == null
+                || StrUtil.hasBlank(userUpdatePasswordRequest.getOldPassword(),
+                userUpdatePasswordRequest.getNewPassword(),
+                userUpdatePasswordRequest.getCheckPassword())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        if (!userUpdatePasswordRequest.getNewPassword().equals(userUpdatePasswordRequest.getCheckPassword())) {
+            throw new BusinessException(ErrorCode.PASSWORD_DIFFERENCE);
+        }
+
+        User loginUser = getSessionUser(request);
+        User dbUser = this.getById(loginUser.getId());
+        if (dbUser == null) throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
+
+        String oldEncryptPassword = UserUtils.getEncryptPassword(userUpdatePasswordRequest.getOldPassword());
+        if (!oldEncryptPassword.equals(dbUser.getUserPassword())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Old password is incorrect");
+        }
+
+        User user = new User();
+        user.setId(loginUser.getId());
+        user.setUserPassword(UserUtils.getEncryptPassword(userUpdatePasswordRequest.getNewPassword()));
+
+        boolean result = this.updateById(user);
+        if (BooleanUtil.isFalse(result)) throw new BusinessException(ErrorCode.OPERATION_ERROR);
+        refreshLoginUser(request, loginUser.getId());
+        return true;
+    }
+
+    private User getSessionUser(HttpServletRequest request) {
+        if (request == null) throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        User loginUser = (User) request.getSession().getAttribute(UserContants.USER_LOGIN_STATE);
+        if (loginUser == null || loginUser.getId() == null) throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        return loginUser;
+    }
+
+    private void refreshLoginUser(HttpServletRequest request, Long userId) {
+        User latestUser = this.getById(userId);
+        if (latestUser == null) throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
+        request.getSession().setAttribute(UserContants.USER_LOGIN_STATE, latestUser);
+    }
+
     @Override
     public UserVO getUserVO(User user) {
         if (user == null) {

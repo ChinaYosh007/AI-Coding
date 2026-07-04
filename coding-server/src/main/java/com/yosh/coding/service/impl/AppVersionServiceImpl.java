@@ -7,6 +7,8 @@ import com.yosh.coding.mapper.AppVersionMapper;
 import com.yosh.coding.service.AppVersionService;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
+
 /**
  * 应用代码版本 服务层实现。
  *
@@ -33,5 +35,11 @@ public class AppVersionServiceImpl extends ServiceImpl<AppVersionMapper, AppVers
 
             return this.getOne(queryWrapper);
 
+    }
+
+    @Override
+    public File getResource(Long appId, Long version) {
+        AppVersion appVersion = this.getByAppIdAndVersion(appId, version);
+        return appVersion == null ? null : new File(appVersion.getSourcePath());
     }
 }

@@ -42,8 +42,5 @@ public interface ChatHistoryService extends IService<ChatHistory> {
                                       LocalDateTime lastCreateTime,
                                       LoginUserVO loginUser);
 
-    /**
-     * 管理员分页查询所有对话历史，按创建时间降序
-     */
-    Page<ChatHistoryVO> adminListChatHistoryByPage(ChatHistoryAdminQueryRequest request);
+
 }

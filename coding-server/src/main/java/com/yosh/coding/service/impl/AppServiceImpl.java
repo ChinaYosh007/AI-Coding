@@ -5,9 +5,11 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.core.util.ZipUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.yosh.coding.core.AiCodeGeneratorFacade;
+import com.yosh.coding.service.AppCollaborationService;
 import com.yosh.coding.service.AppVersionService;
 import com.yosh.coding.service.ChatHistoryService;
 import com.yosh.coding.service.UserService;
@@ -15,21 +17,29 @@ import com.yosh.exception.BusinessException;
 import com.yosh.exception.ErrorCode;
 import com.yosh.exception.ThrowUtils;
 import com.yosh.model.costants.AppConstant;
+import com.yosh.model.dto.app.AppCollaborationInviteRequest;
 import com.yosh.model.dto.app.AppQueryRequest;
 import com.yosh.model.entity.App;
 import com.yosh.coding.mapper.AppMapper;
 import com.yosh.coding.service.AppService;
+import com.yosh.model.entity.AppCollaboration;
 import com.yosh.model.entity.AppVersion;
+import com.yosh.model.entity.ChatHistory;
 import com.yosh.model.entity.User;
+import com.yosh.model.costants.UserContants;
 import com.yosh.model.enums.CodeGenTypeEnum;
 import com.yosh.model.enums.MessageTypeEnum;
+import com.yosh.model.enums.UserRoleEnum;
+import com.yosh.model.vo.AppCollaborationMemberVO;
 import com.yosh.model.vo.AppVO;
 import com.yosh.model.vo.LoginUserVO;
 import com.yosh.model.vo.UserVO;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.redisson.client.RedisException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
@@ -37,9 +47,11 @@ import java.io.File;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -53,6 +65,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppService{
     @Autowired
+    @Lazy
     private UserService userService;
     @Autowired
     private AiCodeGeneratorFacade aiCodeGeneratorFacade;
@@ -62,6 +75,162 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     private AppVersionService appVersionService;
     @Autowired
     private RedissonClient redissonClient;
+    @Autowired
+    private AppCollaborationService appCollaborationService;
+
+    @Override
+    public Long getAppChatHistoryStats(Long appId) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID不能为空");
+
+        return this.count(QueryWrapper.create().eq(ChatHistory::getAppId, appId));
+    }
+
+    @Override
+    public String exportAppChatHistoryAsMarkdown(Long appId) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID不能为空");
+        QueryWrapper queryWrapper = QueryWrapper.create().eq(ChatHistory::getAppId, appId);
+        List<ChatHistory> chatHistoryList = chatHistoryService.list(queryWrapper);
+        return chatHistoryList.stream().map(chatHistory -> {
+            String message = chatHistory.getMessage();
+            String messageType = chatHistory.getMessageType();
+            return messageType.equals(MessageTypeEnum.USER.getValue()) ? "user：" + message : "agent：" + message;
+        }).collect(Collectors.joining("\n\n"));
+    }
+
+    @Override
+    public void summarizeAppChatHistoryMemory(Long appId) {
+        String markdown = exportAppChatHistoryAsMarkdown(appId);
+        String str = aiCodeGeneratorFacade.summarizeAppChatHistoryMemory(markdown, appId);
+        //清楚旧的数据
+        this.remove(QueryWrapper.create().eq(ChatHistory::getAppId, appId));
+        chatHistoryService.save(BeanUtil.toBean(ChatHistory.builder().appId(appId).message(str).messageType(MessageTypeEnum.AI.getValue()).build(), ChatHistory.class));
+    }
+
+    @Override
+    public String getAppChatHistoryMemory(Long appId) {
+        return aiCodeGeneratorFacade.getAppChatHistoryMemory(appId);
+    }
+
+    @Override
+    public void inviteAppCollaborator(Long appId, AppCollaborationInviteRequest request, LoginUserVO loginUser) {
+        ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(request.getAppId() != null && !request.getAppId().equals(appId),
+                ErrorCode.PARAMS_ERROR, "path appId and request appId are inconsistent");
+        ThrowUtils.throwIf(StrUtil.isBlank(request.getUserAccount()), ErrorCode.PARAMS_ERROR, "userAccount is blank");
+
+        App app = getValidApp(appId);
+        checkAppOwnerOrAdmin(app, loginUser);
+
+        List<User> users = userService.list(QueryWrapper.create().eq(User::getUserAccount, request.getUserAccount()));
+        User invitedUser = CollUtil.isEmpty(users) ? null : users.get(0);
+        ThrowUtils.throwIf(invitedUser == null, ErrorCode.NOT_FOUND_ERROR, "invited user not found");
+        ThrowUtils.throwIf(app.getUserId().equals(invitedUser.getId()), ErrorCode.OPERATION_ERROR,
+                "owner already has app access");
+
+        QueryWrapper existsWrapper = QueryWrapper.create()
+                .eq(AppCollaboration::getAppId, appId)
+                .eq(AppCollaboration::getUserId, invitedUser.getId());
+        ThrowUtils.throwIf(appCollaborationService.count(existsWrapper) > 0, ErrorCode.OPERATION_ERROR,
+                "user already collaborator");
+
+        AppCollaboration collaboration = new AppCollaboration();
+        collaboration.setAppId(appId);
+        collaboration.setUserId(invitedUser.getId());
+        collaboration.setRole(UserRoleEnum.APP_COLLABORATOR.getValue());
+        boolean result = appCollaborationService.save(collaboration);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "invite collaborator failed");
+    }
+
+    @Override
+    public List<AppCollaborationMemberVO> getAppCollaborationMembers(Long appId, LoginUserVO loginUser) {
+        App app = getValidApp(appId);
+        checkAppViewAuth(app, loginUser);
+
+        Map<Long, AppCollaborationMemberVO> memberMap = new LinkedHashMap<>();
+        User owner = userService.getById(app.getUserId());
+        if (owner != null) {
+            memberMap.put(owner.getId(), buildCollaborationMemberVO(owner, UserRoleEnum.APP_OWNER.getValue()));
+        }
+        // 获取应用 collaborators
+        List<AppCollaboration> collaborations = appCollaborationService.list(
+                QueryWrapper.create().eq(AppCollaboration::getAppId, appId)
+        );
+        if (CollUtil.isEmpty(collaborations)) {
+            return new ArrayList<>(memberMap.values());
+        }
+        // 获取 collaborators 的 userId
+        Set<Long> collaboratorUserIds = collaborations.stream()
+                .map(AppCollaboration::getUserId)
+                .filter(userId -> userId != null && !memberMap.containsKey(userId))
+                .collect(Collectors.toSet());
+        // 如果没有 collaborators，则返回应用的 owner
+        if (CollUtil.isEmpty(collaboratorUserIds)) {
+            return new ArrayList<>(memberMap.values());
+        }
+        // 获取 collaborators 的用户信息
+        Map<Long, User> userMap = userService.listByIds(collaboratorUserIds).stream()
+                .collect(Collectors.toMap(User::getId, user -> user));
+        for (AppCollaboration collaboration : collaborations) {
+            User user = userMap.get(collaboration.getUserId());
+            if (user == null || memberMap.containsKey(user.getId())) {
+                continue;
+            }
+            String role = StrUtil.blankToDefault(collaboration.getRole(), UserRoleEnum.APP_COLLABORATOR.getValue());
+            memberMap.put(user.getId(), buildCollaborationMemberVO(user, role));
+        }
+        return new ArrayList<>(memberMap.values());
+    }
+
+    @Override
+    public File getAppCodeZip(Long appId, Long version, LoginUserVO loginUser) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "appId is invalid");
+        App app = getValidApp(appId);
+        checkAppViewAuth(app, loginUser);
+
+        File file = appVersionService.getResource(appId, version);
+        ThrowUtils.throwIf(file == null, ErrorCode.NOT_FOUND_ERROR, "app version source not found");
+        ThrowUtils.throwIf(!file.exists() || !file.isDirectory(), ErrorCode.NOT_FOUND_ERROR,
+                "app source directory not found");
+        //对保存地址数据进行压缩
+        File zipFile = ZipUtil.zip(file);
+        ThrowUtils.throwIf(zipFile == null || !zipFile.exists(), ErrorCode.OPERATION_ERROR, "zip app source failed");
+        return zipFile;
+    }
+
+    private App getValidApp(Long appId) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "appId is invalid");
+        App app = this.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "app not found");
+        return app;
+    }
+
+    private void checkAppOwnerOrAdmin(App app, LoginUserVO loginUser) {
+        ThrowUtils.throwIf(loginUser == null || loginUser.getId() == null, ErrorCode.NOT_LOGIN_ERROR);
+        boolean isOwner = app.getUserId().equals(loginUser.getId());
+        boolean isAdmin = UserContants.ADMIN_ROLE.equals(loginUser.getUserRole());
+        ThrowUtils.throwIf(!isOwner && !isAdmin, ErrorCode.NO_AUTH_ERROR);
+    }
+
+    private void checkAppViewAuth(App app, LoginUserVO loginUser) {
+        ThrowUtils.throwIf(loginUser == null || loginUser.getId() == null, ErrorCode.NOT_LOGIN_ERROR);
+        if (app.getUserId().equals(loginUser.getId()) || UserContants.ADMIN_ROLE.equals(loginUser.getUserRole())) {
+            return;
+        }
+        QueryWrapper queryWrapper = QueryWrapper.create()
+                .eq(AppCollaboration::getAppId, app.getId())
+                .eq(AppCollaboration::getUserId, loginUser.getId());
+        ThrowUtils.throwIf(appCollaborationService.count(queryWrapper) <= 0, ErrorCode.NO_AUTH_ERROR);
+    }
+
+    private AppCollaborationMemberVO buildCollaborationMemberVO(User user, String role) {
+        AppCollaborationMemberVO memberVO = new AppCollaborationMemberVO();
+        memberVO.setUserId(user.getId());
+        memberVO.setUserAccount(user.getUserAccount());
+        memberVO.setUserName(user.getUserName());
+        memberVO.setUserAvatar(user.getUserAvatar());
+        memberVO.setRole(role);
+        return memberVO;
+    }
 
     @Override
     public Flux<String>  chatToGenCode(Long appId, String msg, LoginUserVO loginUser){
@@ -91,17 +260,36 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
             return dunk;
         }).doOnComplete(() -> {
             String res = respone.toString();
-            if (StrUtil.isNotBlank(res)) {
-                chatHistoryService.addChatHistory(appId, loginUser.getId(), res, MessageTypeEnum.AI.getValue());
-            }
-            newVersion.setAiResponse(res);
-            appVersionService.updateById(newVersion);
+            saveGenerateResultAsync(appId, loginUser.getId(), res, newVersion);
         }).doOnError(e -> {
             String err = "Ai Respone is error" + e;
-            chatHistoryService.addChatHistory(appId, loginUser.getId(), err, MessageTypeEnum.AI.getValue());
-            // 出错时回滚预占的版本记录
-            if (newVersion.getId() != null) {
-                appVersionService.removeById(newVersion.getId());
+            rollbackGenerateVersionAsync(appId, loginUser.getId(), err, newVersion);
+        });
+    }
+
+    private void saveGenerateResultAsync(Long appId, Long userId, String aiResponse, AppVersion appVersion) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                if (StrUtil.isNotBlank(aiResponse)) {
+                    chatHistoryService.addChatHistory(appId, userId, aiResponse, MessageTypeEnum.AI.getValue());
+                }
+                appVersion.setAiResponse(aiResponse);
+                appVersionService.updateById(appVersion);
+            } catch (Exception e) {
+                log.error("save generate result failed. appId={}, version={}", appId, appVersion.getVersion(), e);
+            }
+        });
+    }
+
+    private void rollbackGenerateVersionAsync(Long appId, Long userId, String errorMessage, AppVersion appVersion) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                chatHistoryService.addChatHistory(appId, userId, errorMessage, MessageTypeEnum.AI.getValue());
+                if (appVersion.getId() != null) {
+                    appVersionService.removeById(appVersion.getId());
+                }
+            } catch (Exception e) {
+                log.error("rollback generate version failed. appId={}, version={}", appId, appVersion.getVersion(), e);
             }
         });
     }
@@ -114,35 +302,66 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
      * @return
      */
     private AppVersion reserveAppVersion(Long appId, String msg, String codeGenType) {
+        try {
+            return reserveAppVersionWithRedisLock(appId, msg, codeGenType);
+        } catch (RedisException e) {
+            log.warn("Redis lock unavailable, fallback to database version retry. appId={}", appId, e);
+            return reserveAppVersionWithDatabaseRetry(appId, msg, codeGenType);
+        }
+    }
+
+    private AppVersion reserveAppVersionWithRedisLock(Long appId, String msg, String codeGenType) {
         String lockKey = AppConstant.APP_VERSION_LOCK_KEY_PREFIX + appId;
         RLock lock = redissonClient.getLock(lockKey);
         boolean locked = false;
         try {
             locked = lock.tryLock(5, 30, TimeUnit.SECONDS);
             ThrowUtils.throwIf(!locked, ErrorCode.OPERATION_ERROR, "app is generating, please try later");
-            AppVersion currentVersion = appVersionService.getByAppId(appId);
-            Long version = currentVersion != null ? currentVersion.getVersion() + 1 : AppConstant.DEFAULT_VERSION;
-            AppVersion newVersion = new AppVersion();
-            newVersion.setAppId(appId);
-            newVersion.setVersion(version);
-            newVersion.setCodeGenType(codeGenType);
-            newVersion.setUserMessage(msg);
-            String sourceDir = codeGenType + "_" + appId + "_" + version;
-            String sourcePath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + sourceDir;
-            newVersion.setSourcePath(sourcePath);
-            FileUtil.mkdir(sourcePath);
-            boolean saveResult = appVersionService.save(newVersion);
-            ThrowUtils.throwIf(!saveResult, ErrorCode.OPERATION_ERROR, "save app version failed");
-            return newVersion;
+            return createAppVersionRecord(appId, msg, codeGenType);
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "get app version lock failed");
         } finally {
-            if (locked && lock.isHeldByCurrentThread()) {
-                lock.unlock();
+            try {
+                if (locked && lock.isHeldByCurrentThread()) {
+                    lock.unlock();
+                }
+            } catch (RedisException e) {
+                log.warn("release Redis lock failed. appId={}", appId, e);
             }
         }
+    }
+
+    private AppVersion reserveAppVersionWithDatabaseRetry(Long appId, String msg, String codeGenType) {
+        RuntimeException lastException = null;
+        for (int i = 0; i < 3; i++) {
+            try {
+                return createAppVersionRecord(appId, msg, codeGenType);
+            } catch (RuntimeException e) {
+                lastException = e;
+                log.warn("save app version failed, retrying. appId={}, attempt={}", appId, i + 1, e);
+            }
+        }
+        log.error("save app version failed after retry. appId={}", appId, lastException);
+        throw new BusinessException(ErrorCode.OPERATION_ERROR, "save app version failed, please retry later");
+    }
+
+    private AppVersion createAppVersionRecord(Long appId, String msg, String codeGenType) {
+        AppVersion currentVersion = appVersionService.getByAppId(appId);
+        Long version = currentVersion != null ? currentVersion.getVersion() + 1 : AppConstant.DEFAULT_VERSION;
+        AppVersion newVersion = new AppVersion();
+        newVersion.setAppId(appId);
+        newVersion.setVersion(version);
+        newVersion.setCodeGenType(codeGenType);
+        newVersion.setUserMessage(msg);
+        String sourceDir = codeGenType + "_" + appId + "_" + version;
+        String sourcePath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + sourceDir;
+        newVersion.setSourcePath(sourcePath);
+        FileUtil.mkdir(sourcePath);
+        boolean saveResult = appVersionService.save(newVersion);
+        ThrowUtils.throwIf(!saveResult, ErrorCode.OPERATION_ERROR, "save app version failed");
+        return newVersion;
     }
     @Override
     public boolean removeById(Serializable id){

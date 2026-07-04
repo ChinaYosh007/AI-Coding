@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
+import com.yosh.coding.core.AiCodeGeneratorFacade;
 import com.yosh.coding.mapper.ChatHistoryMapper;
 import com.yosh.coding.service.AppService;
 import com.yosh.coding.service.ChatHistoryService;
@@ -19,11 +20,13 @@ import com.yosh.model.entity.ChatHistory;
 import com.yosh.model.enums.MessageTypeEnum;
 import com.yosh.model.vo.ChatHistoryVO;
 import com.yosh.model.vo.LoginUserVO;
+import jakarta.annotation.Resource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -39,6 +42,9 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
     @Autowired
     @Lazy
     private AppService appService;
+
+    @Resource
+    private AiCodeGeneratorFacade aiCodeGeneratorFacade;
 
     @Override
     public Boolean addChatHistory(Long appId, Long userId, String message, String messageType) {
@@ -63,7 +69,7 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
     @Override
     public void deleteByAppId(Long appId) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR);
-        QueryWrapper qw = QueryWrapper.create().eq("appId", appId);
+        QueryWrapper qw = QueryWrapper.create().eq(ChatHistory::getAppId, appId);
         this.remove(qw);
     }
     @Override
@@ -72,30 +78,23 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
         if (chatHistoryQueryRequest == null) {
             return queryWrapper;
         }
-        Long id = chatHistoryQueryRequest.getId();
-        String message = chatHistoryQueryRequest.getMessage();
-        String messageType = chatHistoryQueryRequest.getMessageType();
-        Long appId = chatHistoryQueryRequest.getAppId();
-        Long userId = chatHistoryQueryRequest.getUserId();
-        LocalDateTime lastCreateTime = chatHistoryQueryRequest.getLastCreateTime();
-        String sortField = chatHistoryQueryRequest.getSortField();
-        String sortOrder = chatHistoryQueryRequest.getSortOrder();
+
         // 拼接查询条件
-        queryWrapper.eq("id", id)
-                .like("message", message)
-                .eq("messageType", messageType)
-                .eq("appId", appId)
-                .eq("userId", userId);
+        queryWrapper.eq(ChatHistory::getId, chatHistoryQueryRequest.getId())
+                .like(ChatHistory::getMessage, chatHistoryQueryRequest.getMessage())
+                .eq(ChatHistory::getMessageType, chatHistoryQueryRequest.getMessageType())
+                .eq(ChatHistory::getAppId, chatHistoryQueryRequest.getAppId())
+                .eq(ChatHistory::getUserId, chatHistoryQueryRequest.getUserId());
         // 游标查询逻辑 - 只使用 createTime 作为游标
-        if (lastCreateTime != null) {
-            queryWrapper.lt("createTime", lastCreateTime);
+        if (chatHistoryQueryRequest.getLastCreateTime() != null) {
+            queryWrapper.lt(ChatHistory::getCreateTime, chatHistoryQueryRequest.getLastCreateTime());
         }
         // 排序
-        if (StrUtil.isNotBlank(sortField)) {
-            queryWrapper.orderBy(sortField, "ascend".equals(sortOrder));
+        if (StrUtil.isNotBlank(chatHistoryQueryRequest.getSortField())) {
+            queryWrapper.orderBy(chatHistoryQueryRequest.getSortField(), "ascend".equals(chatHistoryQueryRequest.getSortOrder()));
         } else {
             // 默认按创建时间降序排列
-            queryWrapper.orderBy("createTime", false);
+            queryWrapper.orderBy(ChatHistory::getCreateTime, false);
         }
         return queryWrapper;
     }
@@ -124,24 +123,5 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
     }
 
 
-    @Override
-    public Page<ChatHistoryVO> adminListChatHistoryByPage(ChatHistoryAdminQueryRequest request) {
-        long pageNum = request.getPageNum();
-        long pageSize = request.getPageSize();
-        QueryWrapper qw = QueryWrapper.create()
-                .eq("appId", request.getAppId(), request.getAppId() != null)
-                .eq("userId", request.getUserId(), request.getUserId() != null)
-                .eq("messageType", request.getMessageType())
-                .orderBy("createTime", false);
-        Page<ChatHistory> page = this.page(Page.of(pageNum, pageSize), qw);
-        Page<ChatHistoryVO> voPage = new Page<>(pageNum, pageSize, page.getTotalRow());
-        voPage.setRecords(page.getRecords().stream().map(this::toVO).collect(Collectors.toList()));
-        return voPage;
-    }
 
-    private ChatHistoryVO toVO(ChatHistory chatHistory) {
-        ChatHistoryVO vo = new ChatHistoryVO();
-        BeanUtil.copyProperties(chatHistory, vo);
-        return vo;
-    }
 }

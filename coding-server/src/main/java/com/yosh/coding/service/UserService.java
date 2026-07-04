@@ -5,6 +5,8 @@ import com.mybatisflex.core.service.IService;
 import com.yosh.model.dto.user.UserDTO;
 import com.yosh.model.dto.user.UserQueryRequest;
 import com.yosh.model.dto.user.UserRegisterRequest;
+import com.yosh.model.dto.user.UserUpdateMyRequest;
+import com.yosh.model.dto.user.UserUpdatePasswordRequest;
 import com.yosh.model.entity.User;
 import com.yosh.model.vo.LoginUserVO;
 import com.yosh.model.vo.UserVO;
@@ -33,6 +35,10 @@ public interface UserService extends IService<User> {
     LoginUserVO getLoginUser(HttpServletRequest request);
 
     void userLogout(HttpServletRequest request);
+
+    boolean updateMyUser(UserUpdateMyRequest userUpdateMyRequest, HttpServletRequest request);
+
+    boolean updateMyPassword(UserUpdatePasswordRequest userUpdatePasswordRequest, HttpServletRequest request);
 
     UserVO getUserVO(User user);
 

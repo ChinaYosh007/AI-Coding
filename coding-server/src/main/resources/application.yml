@@ -2,9 +2,16 @@ server:
   port: 8080
   servlet:
     context-path: /api
+  reactive:
+    session:
+      cookie:
+        max-age: 2592000 # 30 days
 spring:
   application:
     name: AI-Coding
+    session:
+      store-type: redis
+      timeout: 2592000
   config:
     import:
       - optional:file:.env[.properties]
@@ -18,6 +25,10 @@ spring:
     password: ${MYSQL_PASSWORD}
     hikari:
       initialization-fail-timeout: 5000
+      connection-timeout: ${MYSQL_CONNECTION_TIMEOUT:10000}
+      validation-timeout: ${MYSQL_VALIDATION_TIMEOUT:3000}
+      keepalive-time: ${MYSQL_KEEPALIVE_TIME:30000}
+      max-lifetime: ${MYSQL_MAX_LIFETIME:120000}
   data:
     redis:
       host: ${REDIS_HOST}
@@ -26,6 +37,10 @@ spring:
       password: ${REDIS_PASSWORD}
       database: ${REDIS_DB:0}
       ttl: 2592000
+      timeout: ${REDIS_TIMEOUT:10000}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:10000}
+      retry-attempts: ${REDIS_RETRY_ATTEMPTS:3}
+      retry-interval: ${REDIS_RETRY_INTERVAL:1500}
 logging:
   level:
     root: info
