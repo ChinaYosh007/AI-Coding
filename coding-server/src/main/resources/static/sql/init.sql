@@ -80,6 +80,20 @@ create table app_version
 ) comment '应用代码版本' collate = utf8mb4_unicode_ci;
 alter  table app_version modify column version bigint not null comment '版本号';
 -- 对话历史表
+create table if not exists app_collaboration
+(
+    id         bigint auto_increment comment 'id' primary key,
+    appId      bigint                                 not null comment 'app id',
+    userId     bigint                                 not null comment 'collaborator user id',
+    role       varchar(32) default 'collaborator'     not null comment 'owner/collaborator/viewer',
+    createTime datetime    default CURRENT_TIMESTAMP  not null comment 'create time',
+    updateTime datetime    default CURRENT_TIMESTAMP  not null on update CURRENT_TIMESTAMP comment 'update time',
+    isDelete   tinyint     default 0                  not null comment 'is delete',
+    unique key uk_appId_userId (appId, userId),
+    index idx_appId (appId),
+    index idx_userId (userId)
+) comment 'app collaboration' collate = utf8mb4_unicode_ci;
+
 create table chat_history
 (
     id          bigint auto_increment comment 'id' primary key,

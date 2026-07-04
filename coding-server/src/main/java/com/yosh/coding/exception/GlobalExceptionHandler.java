@@ -17,7 +17,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public BaseResponse<?> handler(BusinessException e) {
-        log.error("BusinessException", e);
+        if (e.getCode() == ErrorCode.NOT_LOGIN_ERROR.getCode()) {
+            log.debug("BusinessException: {}", e.getMessage());
+        } else {
+            log.warn("BusinessException: {}", e.getMessage(), e);
+        }
         return ResultUtils.error(e.getCode(),e.getMessage());
     }
     @ExceptionHandler(RuntimeException.class)

@@ -3,6 +3,7 @@ package com.yosh.coding.controller;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import cn.hutool.log.Log;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.yosh.coding.annotation.AuthCheck;
@@ -17,10 +18,15 @@ import com.yosh.model.costants.AppConstant;
 import com.yosh.model.costants.UserContants;
 import com.yosh.model.dto.app.*;
 import com.yosh.model.enums.CodeGenTypeEnum;
+import com.yosh.model.vo.AppCollaborationMemberVO;
 import com.yosh.model.vo.AppVO;
 import com.yosh.model.vo.LoginUserVO;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +35,7 @@ import com.yosh.coding.service.AppService;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.io.File;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -338,16 +345,66 @@ public class AppController {
         String deployUrl = appService.developApp(appId, loginUser, version);
         return ResultUtils.success(deployUrl);
     }
+    /**
+     * 获取某个应用的对话历史统计信息
+     * @param appId
+     * @return
+     */
+    @GetMapping("/{appId}/stats")
+    public BaseResponse<Long> getAppChatHistoryStats(@PathVariable Long appId) {
+        Long result = appService.getAppChatHistoryStats(appId);
+        return ResultUtils.success(result);
+    }
+    /**
+     * 导出某个应用的对话历史为 Markdown 文件
+     * @param appId
+     * @return
+     */
+    @GetMapping("/{appId}/export/markdown")
+    public BaseResponse<String> exportAppChatHistoryAsMarkdown(@PathVariable Long appId) {
+        String result = appService.exportAppChatHistoryAsMarkdown(appId);
+        return ResultUtils.success(result);
+    }
 
+    /**
+     *
+     * @param appId
+     * @return
+     */
+    @PostMapping("/{appId}/memory/summarize")
+    public BaseResponse summarizeAppChatHistoryMemory(@PathVariable Long appId) {
+        appService.summarizeAppChatHistoryMemory(appId);
+        return ResultUtils.success();
+    }
+    @GetMapping("/{appId}/memory")
+    public BaseResponse getAppChatHistoryMemory(@PathVariable Long appId) {
+        return ResultUtils.success(appService.getAppChatHistoryMemory(appId));
+    }
+    @GetMapping("/{appId}/collaboration/members")
+    public BaseResponse<List<AppCollaborationMemberVO>> getAppCollaborationMembers(@PathVariable Long appId,
+                                                                                   HttpServletRequest request) {
+        LoginUserVO loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(appService.getAppCollaborationMembers(appId, loginUser));
+    }
+    @PostMapping("/{appId}/collaboration/invite")
+    public BaseResponse<Void> inviteAppCollaborator(@PathVariable Long appId,
+                                                    @RequestBody AppCollaborationInviteRequest inviteRequest,
+                                                    HttpServletRequest request) {
+        LoginUserVO loginUser = userService.getLoginUser(request);
+        appService.inviteAppCollaborator(appId, inviteRequest, loginUser);
+        return ResultUtils.success();
+    }
+    @GetMapping("/download/{appId}")
+    public ResponseEntity<Resource> downloadAppCode(@PathVariable Long appId, @PathVariable Long version, HttpServletRequest request) {
+        LoginUserVO loginUser = userService.getLoginUser(request);
+        File zipFile = appService.getAppCodeZip(appId, version, loginUser);
 
+        Resource resource = new FileSystemResource(zipFile);
 
-
-
-
-
-
-
-
-
-
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"app-" + appId + ".zip\"")
+                .body(resource);
+    }
 }

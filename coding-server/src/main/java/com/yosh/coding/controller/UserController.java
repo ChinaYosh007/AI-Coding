@@ -164,6 +164,18 @@ public class UserController {
         return ResultUtils.success(userService.getLoginUser(request));
     }
 
+    @PostMapping("/update/my")
+    public BaseResponse<Boolean> updateMyUser(@RequestBody UserUpdateMyRequest userUpdateMyRequest,
+                                              HttpServletRequest request) {
+        return ResultUtils.success(userService.updateMyUser(userUpdateMyRequest, request));
+    }
+
+    @PostMapping("/update/password")
+    public BaseResponse<Boolean> updateMyPassword(@RequestBody UserUpdatePasswordRequest userUpdatePasswordRequest,
+                                                  HttpServletRequest request) {
+        return ResultUtils.success(userService.updateMyPassword(userUpdatePasswordRequest, request));
+    }
+
     @PostMapping("/logout")
     public BaseResponse<Boolean> userLogout(HttpServletRequest request) {
         ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);

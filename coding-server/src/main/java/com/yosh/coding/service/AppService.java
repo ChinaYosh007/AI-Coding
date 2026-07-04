@@ -2,13 +2,15 @@ package com.yosh.coding.service;
 
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
+import com.yosh.model.dto.app.AppCollaborationInviteRequest;
 import com.yosh.model.dto.app.AppQueryRequest;
 import com.yosh.model.entity.App;
-import com.yosh.model.entity.User;
+import com.yosh.model.vo.AppCollaborationMemberVO;
 import com.yosh.model.vo.AppVO;
 import com.yosh.model.vo.LoginUserVO;
 import reactor.core.publisher.Flux;
 
+import java.io.File;
 import java.util.List;
 
 /**
@@ -31,4 +33,18 @@ public interface AppService extends IService<App> {
     String developApp(Long appId, LoginUserVO user,Long version);
 
     String generateAppName(String initPrompt);
+    Long getAppChatHistoryStats(Long appId);
+
+    String exportAppChatHistoryAsMarkdown(Long appId);
+
+    void summarizeAppChatHistoryMemory(Long appId);
+
+    String getAppChatHistoryMemory(Long appId);
+
+    void inviteAppCollaborator(Long appId, AppCollaborationInviteRequest request, LoginUserVO loginUser);
+
+    List<AppCollaborationMemberVO> getAppCollaborationMembers(Long appId, LoginUserVO loginUser);
+
+
+    File getAppCodeZip(Long appId, Long version, LoginUserVO loginUser);
 }

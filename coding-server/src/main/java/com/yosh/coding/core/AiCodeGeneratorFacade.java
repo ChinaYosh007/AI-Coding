@@ -104,4 +104,12 @@ public class AiCodeGeneratorFacade {
     public String generateAppName(String initPrompt) {
         return aiCodeGeneratorService.generateAppName(initPrompt);
     }
+
+    public String summarizeAppChatHistoryMemory(String markdown, Long appId) {
+        return aiCodeGeneratorService.summarizeAppChatHistoryMemory(markdown, appId);
+    }
+
+    public String getAppChatHistoryMemory(Long appId) {
+        return aiCodeGeneratorService.getAppChatHistoryMemory(appId);
+    }
 }
