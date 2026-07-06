@@ -1,0 +1,49 @@
+HELP.md
+target/
+*.log
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### 敏感配置 ###
+.env
+**/application-local.yml
+tmp
+coding-server/.env
+.env.local
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### 项目杂项 ###
+/src/
+agent.md
+bug.txt
+backend-run*.log
+backend-run*.err.log
+backend-run*.out.log
