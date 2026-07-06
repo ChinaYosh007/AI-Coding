@@ -42,6 +42,7 @@ build/
 
 ### 项目杂项 ###
 /src/
+/logs/
 agent.md
 bug.txt
 backend-run*.log

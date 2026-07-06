@@ -42,6 +42,12 @@ spring:
       retry-attempts: ${REDIS_RETRY_ATTEMPTS:3}
       retry-interval: ${REDIS_RETRY_INTERVAL:1500}
 logging:
+  file:
+    name: logs/ai-coding.log
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 30
   level:
     root: info
     com.yosh.coding: debug
