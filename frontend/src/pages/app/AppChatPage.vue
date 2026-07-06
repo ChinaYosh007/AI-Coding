@@ -323,7 +323,7 @@
     <a-modal
         v-model:open="sourceModalVisible"
         title="版本源码"
-        width="960px"
+        width="1080px"
         :footer="null"
         centered
         class="source-modal"
@@ -361,15 +361,28 @@
         <a-spin />
       </div>
       <a-empty v-else-if="sourceFiles.length === 0" description="暂无源码文件" />
-      <a-tabs v-else v-model:activeKey="activeSourceFile" class="source-tabs">
-        <a-tab-pane
-            v-for="file in sourceFiles"
-            :key="file.name"
-            :tab="file.name"
-        >
-          <pre class="source-code-view"><code>{{ file.content }}</code></pre>
-        </a-tab-pane>
-      </a-tabs>
+      <div v-else class="source-explorer">
+        <aside class="source-file-panel">
+          <div class="source-file-panel-title">源码文件</div>
+          <button
+              v-for="file in sourceFiles"
+              :key="file.name"
+              class="source-file-item"
+              :class="{ active: file.name === activeSourceFile }"
+              type="button"
+              @click="activeSourceFile = file.name"
+          >
+            <FileTextOutlined class="source-file-icon" />
+            <span class="source-file-name" :title="file.name">{{ file.name }}</span>
+          </button>
+        </aside>
+        <section class="source-code-panel">
+          <div class="source-code-header">
+            <span class="source-code-file">{{ currentSourceFile?.name || '-' }}</span>
+          </div>
+          <pre class="source-code-view"><code>{{ currentSourceFile?.content || '' }}</code></pre>
+        </section>
+      </div>
     </a-modal>
 
     <a-modal
@@ -522,6 +535,12 @@ interface Message {
 interface SourceFile {
   name: string
   content: string
+}
+
+interface SourceFileListResponse {
+  code?: number
+  data?: string[]
+  message?: string
 }
 
 interface ChatStats {
@@ -695,21 +714,19 @@ const selectVersion = (versionItem: API.AppVersion) => {
   updatePreview()
 }
 
-const getSourceFileCandidates = (codeGenType?: string) => {
-  if (codeGenType === CodeGenTypeEnum.HTML) {
-    return ['index.html']
-  }
-  if (codeGenType === CodeGenTypeEnum.VUE_PROJECT) {
-    return ['index.html', 'style.css', 'script.js', 'src/main.ts', 'src/App.vue', 'package.json']
-  }
-  return ['index.html', 'style.css', 'script.js']
-}
-
 const getSourceStaticBaseUrl = () => {
   if (import.meta.env.DEV && API_BASE_URL === '/api') {
     return `${window.location.protocol}//${window.location.hostname}:8080/api/static`
   }
   return `${API_BASE_URL}/static`
+}
+
+const encodeSourcePath = (filePath: string) => {
+  return filePath
+      .split('/')
+      .filter(Boolean)
+      .map((pathPart) => encodeURIComponent(pathPart))
+      .join('/')
 }
 
 const loadSourceFiles = async () => {
@@ -721,15 +738,23 @@ const loadSourceFiles = async () => {
 
   sourceLoading.value = true
   try {
-    const codeGenType = selectedVersionRecord.value?.codeGenType || appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
-    const candidates = getSourceFileCandidates(codeGenType)
     const loadedFiles: SourceFile[] = []
     const sourceStaticBaseUrl = getSourceStaticBaseUrl()
     const cacheKey = Date.now()
+    const fileListResponse = await request.get<SourceFileListResponse>(
+        `${sourceStaticBaseUrl}/preview/${appId.value}/${selectedVersion.value}/files?t=${cacheKey}`,
+        {
+          timeout: 15000,
+          validateStatus: (status) => status < 500,
+        },
+    )
+    const sourceFilePaths = Array.isArray(fileListResponse.data?.data)
+        ? fileListResponse.data.data
+        : []
 
-    for (const fileName of candidates) {
+    for (const fileName of sourceFilePaths) {
       const response = await request.get<string>(
-          `${sourceStaticBaseUrl}/preview/${appId.value}/${selectedVersion.value}/${fileName}?t=${cacheKey}`,
+          `${sourceStaticBaseUrl}/preview/${appId.value}/${selectedVersion.value}/${encodeSourcePath(fileName)}?t=${cacheKey}`,
           {
             responseType: 'text',
             timeout: 15000,
@@ -1990,28 +2015,114 @@ onUnmounted(() => {
   min-height: 220px;
 }
 
-.source-tabs :deep(.ant-tabs-content-holder) {
-  min-height: 0;
+.source-explorer {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 420px;
+  max-height: 62vh;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #ffffff;
 }
 
-.source-tabs :deep(.ant-tabs-nav) {
-  margin-bottom: 10px;
+.source-file-panel {
+  min-width: 0;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.source-file-panel-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.source-file-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.source-file-item:hover {
+  background: rgba(22, 119, 255, 0.08);
+  color: var(--primary);
+}
+
+.source-file-item.active {
+  background: #ffffff;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.source-file-icon {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  font-size: 14px;
+}
+
+.source-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-code-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.source-code-header {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: #ffffff;
+}
+
+.source-code-file {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .source-code-view {
-  max-height: 62vh;
+  flex: 1;
+  min-height: 0;
   margin: 0;
   padding: 14px;
   overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 6px;
   background: #ffffff;
   color: #1f2937;
   font-family: Consolas, Monaco, 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.6;
   white-space: pre;
-  box-shadow: inset 0 1px 0 rgba(15, 23, 42, 0.03);
 }
 
 .source-code-view code {
@@ -2326,6 +2437,38 @@ onUnmounted(() => {
 
   .message-content {
     max-width: 88%;
+  }
+
+  .source-modal-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .source-modal-actions {
+    justify-content: flex-start;
+  }
+
+  .source-explorer {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(320px, 1fr);
+    max-height: 70vh;
+  }
+
+  .source-file-panel {
+    display: flex;
+    max-height: 132px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .source-file-panel-title {
+    display: none;
+  }
+
+  .source-file-item {
+    flex: 0 0 180px;
+    border-right: 1px solid rgba(148, 163, 184, 0.16);
+    border-bottom: 0;
   }
 }
 </style>

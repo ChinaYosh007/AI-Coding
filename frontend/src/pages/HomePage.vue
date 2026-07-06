@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { ArrowUpOutlined } from '@ant-design/icons-vue'
+import { ArrowUpOutlined, DownOutlined } from '@ant-design/icons-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
 import { addApp, listMyAppVoByPage, listGoodAppVoByPage } from '@/api/appController'
 import { getDeployUrl } from '@/config/env'
+import { CODE_GEN_TYPE_OPTIONS, CodeGenTypeEnum } from '@/utils/codeGenTypes'
 import AppCard from '@/components/AppCard.vue'
 
 const router = useRouter()
@@ -14,6 +15,18 @@ const loginUserStore = useLoginUserStore()
 // 用户提示词
 const userPrompt = ref('')
 const creating = ref(false)
+const selectedCodeGenType = ref(CodeGenTypeEnum.MULTI_FILE)
+
+const selectedCodeGenTypeLabel = computed(() => {
+  return (
+    CODE_GEN_TYPE_OPTIONS.find((option) => option.value === selectedCodeGenType.value)?.label ||
+    '生成模式'
+  )
+})
+
+const handleCodeGenTypeSelect = ({ key }: { key: string | number }) => {
+  selectedCodeGenType.value = key as CodeGenTypeEnum
+}
 
 // 我的应用数据
 const myApps = ref<API.AppVO[]>([])
@@ -81,6 +94,7 @@ const createApp = async () => {
   try {
     const res = await addApp({
       initPrompt: userPrompt.value.trim(),
+      codeGenType: selectedCodeGenType.value,
     })
 
     if (res.data.code === 0 && res.data.data) {
@@ -215,7 +229,25 @@ onMounted(() => {
             @keydown.enter.exact.prevent="createApp"
           />
           <div class="composer-footer">
-            <span class="composer-hint">Enter 发送 · Shift + Enter 换行</span>
+            <div class="composer-left">
+              <a-dropdown :trigger="['click']" placement="topLeft">
+                <button class="composer-type-button" type="button">
+                  <span>{{ selectedCodeGenTypeLabel }}</span>
+                  <DownOutlined />
+                </button>
+                <template #overlay>
+                  <a-menu :selectedKeys="[selectedCodeGenType]" @click="handleCodeGenTypeSelect">
+                    <a-menu-item
+                      v-for="option in CODE_GEN_TYPE_OPTIONS"
+                      :key="option.value"
+                    >
+                      {{ option.label }}
+                    </a-menu-item>
+                  </a-menu>
+                </template>
+              </a-dropdown>
+              <span class="composer-hint">Enter 发送 · Shift + Enter 换行</span>
+            </div>
             <div class="composer-right">
               <span class="composer-count">{{ userPrompt.length }} / 1000</span>
               <button
@@ -527,11 +559,56 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 4px 8px 2px 16px;
+  gap: 12px;
+}
+
+.composer-left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 12px;
+}
+
+.composer-type-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  max-width: 160px;
+  padding: 0 11px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  transition:
+    border-color 0.2s var(--ease-out),
+    color 0.2s var(--ease-out),
+    background 0.2s var(--ease-out);
+}
+
+.composer-type-button:hover {
+  border-color: rgba(99, 102, 241, 0.42);
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--brand-600);
+}
+
+.composer-type-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer-hint {
+  min-width: 0;
+  overflow: hidden;
   font-size: 12px;
   color: var(--text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer-right {
@@ -695,6 +772,16 @@ onMounted(() => {
 
   .hero-description {
     font-size: 15px;
+  }
+
+  .composer-footer {
+    align-items: flex-end;
+  }
+
+  .composer-left {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .quick-actions {
