@@ -1,5 +1,6 @@
 package com.yosh.coding.core.handle;
 
+import com.yosh.coding.service.AppVersionService;
 import com.yosh.coding.service.ChatHistoryService;
 import com.yosh.model.enums.CodeGenTypeEnum;
 import com.yosh.model.vo.LoginUserVO;
@@ -22,6 +23,8 @@ public class StreamHandlerExecutor {
 
     @Resource
     private JsonMessageStreamHandler jsonMessageStreamHandler;
+    @Resource
+    private AppVersionService appVersionService;
 
     /**
      * 创建流处理器并处理聊天历史记录
@@ -41,7 +44,8 @@ public class StreamHandlerExecutor {
             case VUE_PROJECT -> // 使用注入的组件实例
                     jsonMessageStreamHandler.handle(originFlux, chatHistoryService, appId, version, loginUser);
             case HTML, MULTI_FILE -> // 简单文本处理器不需要依赖注入
-                    new SimpleTextStreamHandler().handle(originFlux, chatHistoryService, appId, version, loginUser);
+                    new SimpleTextStreamHandler(appVersionService)
+                            .handle(originFlux, chatHistoryService, appId, version, loginUser);
         };
     }
 }

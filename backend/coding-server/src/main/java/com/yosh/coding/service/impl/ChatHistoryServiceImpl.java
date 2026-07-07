@@ -4,7 +4,6 @@ import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
-import com.yosh.coding.core.AiCodeGeneratorFacade;
 import com.yosh.coding.mapper.ChatHistoryMapper;
 import com.yosh.coding.service.AppService;
 import com.yosh.coding.service.ChatHistoryService;
@@ -43,9 +42,6 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
     @Autowired
     @Lazy
     private AppService appService;
-
-    @Resource
-    private AiCodeGeneratorFacade aiCodeGeneratorFacade;
 
     @Override
     public Boolean addChatHistory(Long appId, Long userId, String message, String messageType) {

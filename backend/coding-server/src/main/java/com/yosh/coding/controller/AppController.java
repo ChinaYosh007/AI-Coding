@@ -75,8 +75,10 @@ public class AppController {
         app.setUserId(loginUser.getId());
         // 让AI根据内容生成合适的标题
         app.setAppName(appService.generateAppName(initPrompt));
-        // 暂时设置为多文件生成
-        app.setCodeGenType(CodeGenTypeEnum.MULTI_FILE.getValue());
+
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(appAddRequest.getCodeGenType());
+        ThrowUtils.throwIf(codeGenTypeEnum == null, ErrorCode.PARAMS_ERROR, "代码生成类型不支持");
+        app.setCodeGenType(codeGenTypeEnum.getValue());
         // 插入数据库
         boolean result = appService.save(app);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
@@ -394,7 +396,7 @@ public class AppController {
         return ResultUtils.success();
     }
     @GetMapping("/download/{appId}")
-    public ResponseEntity<Resource> downloadAppCode(@PathVariable Long appId, @PathVariable Long version, HttpServletRequest request) {
+    public ResponseEntity<Resource> downloadAppCode(@PathVariable Long appId, @RequestParam Long version, HttpServletRequest request) {
         LoginUserVO loginUser = userService.getLoginUser(request);
         File zipFile = appService.getAppCodeZip(appId, version, loginUser);
 

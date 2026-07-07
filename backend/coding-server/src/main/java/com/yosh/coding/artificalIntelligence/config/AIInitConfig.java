@@ -25,16 +25,13 @@ public class AIInitConfig {
                 .chatModel(dskChatModel)
                 .streamingChatModel(dskStreamChatModel)
                 .chatMemoryProvider(id -> MessageWindowChatMemory.builder()
-                                .id(id)
+                        .id(id)
                         .chatMemoryStore(redisChatMemoryStore)
                         .maxMessages(20)
                         .build()
                 )
                 .build();
     }
-    /**
-     * 默认提供一�?Bean
-     */
 
 
 }

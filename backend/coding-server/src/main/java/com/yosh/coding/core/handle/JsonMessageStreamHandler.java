@@ -9,8 +9,12 @@ import com.yosh.coding.artificalIntelligence.model.message.StreamMessage;
 import com.yosh.coding.artificalIntelligence.model.message.ToolExecutedMessage;
 import com.yosh.coding.artificalIntelligence.model.message.ToolRequestMessage;
 import com.yosh.coding.core.builder.BuilderVueCommand;
+import com.yosh.coding.service.AppVersionService;
 import com.yosh.coding.service.ChatHistoryService;
+import com.yosh.exception.BusinessException;
+import com.yosh.exception.ErrorCode;
 import com.yosh.model.constants.AppConstant;
+import com.yosh.model.entity.AppVersion;
 import com.yosh.model.enums.MessageTypeEnum;
 import com.yosh.model.enums.StreamMessageTypeEnum;
 import com.yosh.model.vo.LoginUserVO;
@@ -20,8 +24,10 @@ import org.redisson.api.annotation.REntity;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
+import java.io.File;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 import static com.yosh.model.enums.StreamMessageTypeEnum.AI_RESPONSE;
 
@@ -34,6 +40,8 @@ import static com.yosh.model.enums.StreamMessageTypeEnum.AI_RESPONSE;
 public class JsonMessageStreamHandler {
     @Resource
     private BuilderVueCommand builderVueCommand;
+    @Resource
+    private AppVersionService appVersionService;
 
     /**
      * 处理 TokenStream（VUE_PROJECT）
@@ -60,11 +68,23 @@ public class JsonMessageStreamHandler {
                 })
                 .filter(StrUtil::isNotEmpty) // 过滤空字串
                 .doOnComplete(() -> {
-                    // 流式响应完成后，添加 AI 消息到对话历史
-                    String aiResponse = chatHistoryStringBuilder.toString();
-                    chatHistoryService.addChatHistory(appId,loginUser.getId(), aiResponse, MessageTypeEnum.AI.getValue());
-                    String path = AppConstant.CODE_OUTPUT_ROOT_DIR + AppConstant.VUE_PREFIX + appId + "_" + version;
-                    builderVueCommand.buildProject(path);
+                    try {
+                        String aiResponse = chatHistoryStringBuilder.toString();
+                        chatHistoryService.addChatHistory(appId, loginUser.getId(), aiResponse, MessageTypeEnum.AI.getValue());
+                        updateAppVersionResponse(appId, version, aiResponse);
+                        
+                        String path = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + AppConstant.VUE_PREFIX + appId + "_" + version;
+                        CompletableFuture.runAsync(() -> {
+                            boolean buildResult = builderVueCommand.buildOnly(path);
+                            if (!buildResult) {
+                                log.error("Vue 项目构建失败, appId={}, version={}", appId, version);
+                                chatHistoryService.addChatHistory(appId, loginUser.getId(), 
+                                    "[系统提示] Vue 项目构建失败，请检查代码是否有语法错误。", MessageTypeEnum.AI.getValue());
+                            }
+                        });
+                    } catch (Exception e) {
+                        log.error("流完成后的处理失败: {}", e.getMessage(), e);
+                    }
                 })
                 .doOnError(error -> {
                     // 如果AI回复失败，也要记录错误消息
@@ -77,9 +97,27 @@ public class JsonMessageStreamHandler {
      * 解析并收集 TokenStream 数据
      */
     private String handleJsonMessageChunk(String chunk, StringBuilder chatHistoryStringBuilder, Set<String> seenToolIds) {
+        if (StrUtil.isBlank(chunk)) {
+            return "";
+        }
+        String trimmedChunk = chunk.trim();
+        if (!trimmedChunk.startsWith("{")) {
+            chatHistoryStringBuilder.append(chunk);
+            return chunk;
+        }
         // 解析 JSON
-        StreamMessage streamMessage = JSONUtil.toBean(chunk, StreamMessage.class);
+        StreamMessage streamMessage;
+        try {
+            streamMessage = JSONUtil.toBean(chunk, StreamMessage.class);
+        } catch (Exception e) {
+            chatHistoryStringBuilder.append(chunk);
+            return chunk;
+        }
         StreamMessageTypeEnum typeEnum = StreamMessageTypeEnum.getEnumByValue(streamMessage.getType());
+        if (typeEnum == null) {
+            chatHistoryStringBuilder.append(chunk);
+            return chunk;
+        }
         switch (typeEnum) {
             case AI_RESPONSE -> {
                 AiResponseMessage aiMessage = JSONUtil.toBean(chunk, AiResponseMessage.class);
@@ -103,25 +141,47 @@ public class JsonMessageStreamHandler {
             }
             case TOOL_EXECUTED -> {
                 ToolExecutedMessage toolExecutedMessage = JSONUtil.toBean(chunk, ToolExecutedMessage.class);
-                JSONObject jsonObject = JSONUtil.parseObj(toolExecutedMessage.getArguments());
-                String relativeFilePath = jsonObject.getStr("relativeFilePath");
-                String suffix = FileUtil.getSuffix(relativeFilePath);
-                String content = jsonObject.getStr("content");
-                String result = String.format("""
-                        [工具调用] 写入文件 %s
-                        ```%s
-                        %s
-                        ```
-                        """, relativeFilePath, suffix, content);
-                // 输出前端和要持久化的内容
-                String output = String.format("\n\n%s\n\n", result);
-                chatHistoryStringBuilder.append(output);
-                return output;
+                String arguments = toolExecutedMessage.getArguments();
+                
+                // 防御性检查：确保 arguments 是有效的 JSON 对象
+                if (StrUtil.isBlank(arguments) || !arguments.trim().startsWith("{")) {
+                    log.warn("工具参数不是有效的 JSON 对象: {}", arguments);
+                    return "\n\n[工具调用] 写入文件（参数解析失败）\n\n";
+                }
+                
+                try {
+                    JSONObject jsonObject = JSONUtil.parseObj(arguments);
+                    String relativeFilePath = jsonObject.getStr("relativePath");
+                    if (StrUtil.isBlank(relativeFilePath)) {
+                        relativeFilePath = jsonObject.getStr("relativeFilePath");
+                    }
+                    String result = String.format("""
+                            [工具调用] 写入文件 %s
+                            
+                            """, relativeFilePath);
+                    // 输出前端和要持久化的内容
+                    String output = String.format("\n\n%s\n\n", result);
+                    chatHistoryStringBuilder.append(output);
+                    return output;
+                } catch (Exception e) {
+                    log.error("工具参数解析失败: {}", arguments, e);
+                    return "\n\n[工具调用] 写入文件（参数解析失败）\n\n";
+                }
             }
             default -> {
                 log.error("不支持的消息类型: {}", typeEnum);
                 return "";
             }
         }
+    }
+
+    private void updateAppVersionResponse(long appId, long version, String aiResponse) {
+        AppVersion appVersion = appVersionService.getByAppIdAndVersion(appId, version);
+        if (appVersion == null) {
+            log.warn("app version not found when saving ai response. appId={}, version={}", appId, version);
+            return;
+        }
+        appVersion.setAiResponse(aiResponse);
+        appVersionService.updateById(appVersion);
     }
 }
