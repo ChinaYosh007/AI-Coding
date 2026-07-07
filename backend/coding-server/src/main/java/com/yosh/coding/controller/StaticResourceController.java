@@ -1,5 +1,7 @@
 package com.yosh.coding.controller;
 
+import com.yosh.common.BaseResponse;
+import com.yosh.common.ResultUtils;
 import com.yosh.coding.service.AppVersionService;
 import com.yosh.model.constants.AppConstant;
 import com.yosh.model.entity.AppVersion;
@@ -16,6 +18,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Stream;
 
 @RestController
 @RequestMapping("/static")
@@ -25,6 +33,32 @@ public class StaticResourceController {
 
     @Autowired
     private AppVersionService appVersionService;
+
+    @GetMapping("/preview/{appId}/{version}/files")
+    public BaseResponse<List<String>> listPreviewSourceFiles(@PathVariable Long appId,
+                                                             @PathVariable Long version) {
+        AppVersion appVersion = appVersionService.getByAppIdAndVersion(appId, version);
+        if (appVersion == null || appVersion.getSourcePath() == null) {
+            return ResultUtils.success(List.of());
+        }
+        File sourceDir = new File(appVersion.getSourcePath());
+        if (!sourceDir.exists() || !sourceDir.isDirectory()) {
+            return ResultUtils.success(List.of());
+        }
+        Path rootPath = sourceDir.toPath();
+        try (Stream<Path> pathStream = Files.walk(rootPath)) {
+            List<String> files = pathStream
+                    .filter(Files::isRegularFile)
+                    .filter(path -> shouldExposeSourceFile(rootPath, path))
+                    .map(rootPath::relativize)
+                    .map(path -> path.toString().replace(File.separatorChar, '/'))
+                    .sorted(Comparator.naturalOrder())
+                    .toList();
+            return ResultUtils.success(files);
+        } catch (Exception e) {
+            return ResultUtils.success(List.of());
+        }
+    }
 
     @GetMapping("/preview/{appId}/{version}/**")
     public ResponseEntity<Resource> servePreviewResource(
@@ -115,5 +149,16 @@ public class StaticResourceController {
             return "image/jpeg";
         }
         return "application/octet-stream";
+    }
+
+    private boolean shouldExposeSourceFile(Path rootPath, Path filePath) {
+        String relativePath = rootPath.relativize(filePath).toString().replace(File.separatorChar, '/');
+        Set<String> ignoredSegments = Set.of("node_modules", ".git", ".idea", ".vite", ".cache");
+        for (String segment : relativePath.split("/")) {
+            if (ignoredSegments.contains(segment)) {
+                return false;
+            }
+        }
+        return !relativePath.endsWith(".zip") && !relativePath.endsWith(".log");
     }
 }

@@ -2,6 +2,7 @@ package com.yosh.coding.artificalIntelligence.config;
 
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import lombok.Data;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,10 +17,11 @@ public class ReasoningStringChatModelConfig {
     private final int maxTokens = 32767;
 
     /**
-     * vue 思考生成模�?
+     * vue
      * @return
      */
-    @Bean
+    @Bean(name = "reasoningStreamingChatModel")
+    @ConditionalOnProperty(prefix = "language.open-ai.string.chat-model", name = "enabled", havingValue = "true")
     public OpenAiStreamingChatModel reasoningStreamingChatModel() {
         return OpenAiStreamingChatModel.builder()
                 .baseUrl(baseUrl)

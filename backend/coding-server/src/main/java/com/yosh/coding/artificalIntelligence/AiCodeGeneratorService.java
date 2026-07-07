@@ -4,6 +4,7 @@ import com.yosh.coding.artificalIntelligence.model.HtmlCodeResult;
 import com.yosh.coding.artificalIntelligence.model.MultiFileCodeResult;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.UserMessage;
 import reactor.core.publisher.Flux;
 
@@ -43,5 +44,5 @@ public interface AiCodeGeneratorService {
     String getAppChatHistoryMemory(Long appId);
 
     @SystemMessage(fromResource = "prompt/vue-multi-file-html.txt")
-    Flux<String> generateVueCodeStream( @UserMessage String userMessage,@MemoryId Long appId,@MemoryId Long version);
+    TokenStream generateVueCodeStream(@MemoryId Long appId, @UserMessage String userMessage);
 }

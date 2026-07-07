@@ -6,7 +6,6 @@ import com.yosh.model.enums.CodeGenTypeEnum;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Bean;
 
 import java.io.File;
 
@@ -15,6 +14,8 @@ public class CodeGenerationTest {
 
     @Autowired
     private AiCodeGeneratorService aiCodeGeneratorService;
+    @Autowired
+    private AiCodeGeneratorFacade aiCodeGeneratorFacade;
 
     @Test
     public void testGenerateAndSaveCode() {
@@ -28,7 +29,7 @@ public class CodeGenerationTest {
         System.out.println("JS 代码长度: " + (result.getJsCode() != null ? result.getJsCode().length() : 0));
 
         // 保存代码
-            File savedFile = new AiCodeGeneratorFacade().generateAndSaveCode("测试", CodeGenTypeEnum.MULTI_FILE, 1L, 1L);
+            File savedFile = aiCodeGeneratorFacade.generateAndSaveCode("测试", CodeGenTypeEnum.MULTI_FILE, 1L, 1L);
 
         System.out.println("保存的文件: " + savedFile.getAbsolutePath());
         System.out.println("文件是否存在: " + savedFile.exists());

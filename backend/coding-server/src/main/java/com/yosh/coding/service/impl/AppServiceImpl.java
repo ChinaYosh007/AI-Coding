@@ -5,7 +5,6 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.core.util.ZipUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.yosh.coding.core.AiCodeGeneratorFacade;
@@ -47,7 +46,12 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.Serializable;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -57,6 +61,9 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 /**
  * 应用 服务层实现。
@@ -89,7 +96,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     public Long getAppChatHistoryStats(Long appId) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID不能为空");
 
-        return this.count(QueryWrapper.create().eq(ChatHistory::getAppId, appId));
+        return chatHistoryService.count(QueryWrapper.create().eq(ChatHistory::getAppId, appId));
     }
 
     @Override
@@ -109,7 +116,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         String markdown = exportAppChatHistoryAsMarkdown(appId);
         String str = aiCodeGeneratorFacade.summarizeAppChatHistoryMemory(markdown, appId);
         //清楚旧的数据
-        this.remove(QueryWrapper.create().eq(ChatHistory::getAppId, appId));
+        chatHistoryService.remove(QueryWrapper.create().eq(ChatHistory::getAppId, appId));
         chatHistoryService.save(BeanUtil.toBean(ChatHistory.builder().appId(appId).message(str).messageType(MessageTypeEnum.AI.getValue()).build(), ChatHistory.class));
     }
 
@@ -198,10 +205,46 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         ThrowUtils.throwIf(file == null, ErrorCode.NOT_FOUND_ERROR, "app version source not found");
         ThrowUtils.throwIf(!file.exists() || !file.isDirectory(), ErrorCode.NOT_FOUND_ERROR,
                 "app source directory not found");
-        //对保存地址数据进行压缩
-        File zipFile = ZipUtil.zip(file);
+        File zipFile = zipAppSource(file, appId, version);
         ThrowUtils.throwIf(zipFile == null || !zipFile.exists(), ErrorCode.OPERATION_ERROR, "zip app source failed");
         return zipFile;
+    }
+
+    private File zipAppSource(File sourceDir, Long appId, Long version) {
+        File zipFile = FileUtil.file(FileUtil.getTmpDirPath(), "app-" + appId + "-v" + version + ".zip");
+        FileUtil.del(zipFile);
+        Path rootPath = sourceDir.toPath();
+        try (ZipOutputStream zipOutputStream = new ZipOutputStream(new FileOutputStream(zipFile));
+             Stream<Path> pathStream = Files.walk(rootPath)) {
+            List<Path> files = pathStream
+                    .filter(Files::isRegularFile)
+                    .filter(path -> shouldIncludeInCodeZip(rootPath, path))
+                    .toList();
+            for (Path path : files) {
+                String entryName = rootPath.relativize(path).toString().replace(File.separatorChar, '/');
+                zipOutputStream.putNextEntry(new ZipEntry(entryName));
+                try (FileInputStream inputStream = new FileInputStream(path.toFile())) {
+                    inputStream.transferTo(zipOutputStream);
+                }
+                zipOutputStream.closeEntry();
+            }
+            return zipFile;
+        } catch (IOException e) {
+            log.error("zip app source failed. appId={}, version={}", appId, version, e);
+            FileUtil.del(zipFile);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "zip app source failed");
+        }
+    }
+
+    private boolean shouldIncludeInCodeZip(Path rootPath, Path filePath) {
+        String relativePath = rootPath.relativize(filePath).toString().replace(File.separatorChar, '/');
+        Set<String> ignoredSegments = Set.of("node_modules", ".git", ".idea", ".vite", ".cache");
+        for (String segment : relativePath.split("/")) {
+            if (ignoredSegments.contains(segment)) {
+                return false;
+            }
+        }
+        return !relativePath.endsWith(".zip") && !relativePath.endsWith(".log");
     }
 
     private App getValidApp(Long appId) {
@@ -253,8 +296,6 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         String GenType = app.getCodeGenType();
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(GenType);
         ThrowUtils.throwIf(codeGenTypeEnum == null,ErrorCode.ERROR_QUERY,"this file type current isn't brace!!!");
-        chatHistoryService.addChatHistory(appId,loginUser.getId(),msg, MessageTypeEnum.USER.getValue());
-
         // 预占版本号：先生成一条 version 记录并拿到版本号，保证后续文件保存路径与 DB 一致
         AppVersion newVersion = reserveAppVersion(appId, msg, app.getCodeGenType());
         Long version = newVersion.getVersion();
@@ -263,8 +304,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         chatHistoryService.addChatHistory(appId, loginUser.getId(), msg, MessageTypeEnum.USER.getValue());
         // generate and save code（使用预占的版本号，文件将存到与 DB sourcePath 一致的目录）
         Flux<String> stringFlux = aiCodeGeneratorFacade.generateAndSaveCodeStream(msg, codeGenTypeEnum, appId, version);
-        StringBuilder respone = new StringBuilder();
-        return streamHandlerExecutor.doExecute(stringFlux, chatHistoryService, appId, version,loginUser, codeGenTypeEnum);
+        return streamHandlerExecutor.doExecute(stringFlux, chatHistoryService, appId, version, loginUser, codeGenTypeEnum);
+
     }
 
     private void saveGenerateResultAsync(Long appId, Long userId, String aiResponse, AppVersion appVersion) {
@@ -493,7 +534,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         upApp.setDeployKey(devKey);
         Boolean res = this.updateById(upApp);
         ThrowUtils.throwIf(!res,ErrorCode.OPERATION_ERROR,"error,sorry...");
-        return String.format("%s/%s", AppConstant.CODE_DEPLOY_HOST, devKey);
+        return String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, devKey);
 
     }
 

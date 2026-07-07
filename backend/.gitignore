@@ -41,8 +41,12 @@ build/
 .vscode/
 
 ### 项目杂项 ###
+/src/
+/logs/
 agent.md
 bug.txt
+.agents/
+.claude/
 backend-run*.log
 backend-run*.err.log
 backend-run*.out.log

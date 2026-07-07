@@ -15,3 +15,5 @@ backend-run*.log
 ### 杂项 ###
 agent.md
 bug.txt
+.agents/
+.claude/
