@@ -12,7 +12,7 @@ import java.nio.file.Paths;
 
 @Slf4j
 public class WriteToFile {
-    private static final int MAX_FILE_WRITES = 18;
+    private static final int MAX_FILE_WRITES = 25;
 
     private final Long appId;
     private final Long version;
@@ -45,6 +45,9 @@ public class WriteToFile {
             if (appId == null || version == null) {
                 return "Error writing to file: appId or version is blank";
             }
+            // 清理 content 中的 UTF-8 BOM 字符（大模型接口有时会在返回内容的开头带上 ﻿）
+            // BOM 会导致 Vite/PostCSS 的 JSON 解析器报 "Unexpected token '﻿'" 错误
+            String cleanContent = removeBOM(content);
             Path path = Paths.get(relativePath);
             if(!path.isAbsolute()){
                 String DirName = AppConstant.VUE_PREFIX + appId + "_" + version;
@@ -55,7 +58,7 @@ public class WriteToFile {
             if (parent != null) {
                 FileUtil.mkdir(parent.toFile());
             }
-            FileUtil.writeUtf8String(content, path.toFile());
+            FileUtil.writeUtf8String(cleanContent, path.toFile());
             log.info("Wrote to file: " + path.toAbsolutePath());
             return "Wrote to file: " + relativePath;
         } catch (Exception e) {
@@ -63,5 +66,21 @@ public class WriteToFile {
             return "Error writing to file: " + e.getMessage();
         }
 
+    }
+
+    /**
+     * 移除 UTF-8 BOM 字符（﻿ / U+FEFF）
+     * 大模型接口有时会在返回内容的开头附带 BOM，导致 Vite 等构建工具解析 JSON/JS 时失败
+     */
+    private String removeBOM(String content) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+        // 移除开头的 BOM 字符
+        if (content.startsWith("﻿")) {
+            return content.substring(1);
+        }
+        // 防御：有些响应可能带有多个 BOM 或被 encode 成其他形式
+        return content.replace("﻿", "");
     }
 }

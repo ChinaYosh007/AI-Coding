@@ -9,6 +9,7 @@ import com.yosh.coding.artificalIntelligence.model.MultiFileCodeResult;
 import com.yosh.coding.artificalIntelligence.model.message.AiResponseMessage;
 import com.yosh.coding.artificalIntelligence.model.message.ToolExecutedMessage;
 import com.yosh.coding.artificalIntelligence.skill.WriteToFile;
+import com.yosh.coding.core.builder.BuilderVueCommand;
 import com.yosh.coding.core.parser.CodeParserExcutor;
 import com.yosh.coding.core.saver.CodeFilleSaveExecutor;
 import com.yosh.coding.service.ChatHistoryService;
@@ -45,8 +46,8 @@ import com.yosh.model.constants.AppConstant;
 @Slf4j
 @Service
 public class AiCodeGeneratorFacade {
-    private static final int MAX_VUE_TOOL_INVOCATIONS = 18;
-    private static final Duration VUE_STREAM_TIMEOUT = Duration.ofMinutes(5);
+    private static final int MAX_VUE_TOOL_INVOCATIONS = 25;
+    private static final Duration VUE_STREAM_TIMEOUT = Duration.ofMinutes(15);
 
     @Resource
     private AiCodeGeneratorService aiCodeGeneratorService;
@@ -60,6 +61,10 @@ public class AiCodeGeneratorFacade {
     private ChatModel chatModel;
     @Resource
     private VueProjectInitializer vueProjectInitializer;
+    @Resource
+    private BuilderVueCommand builderVueCommand;
+    @Resource
+    private ChatHistoryService chatHistoryService;
     /**
      * 缓存内部
      * @param appId
@@ -69,18 +74,20 @@ public class AiCodeGeneratorFacade {
      */
     private final Cache<String, AiCodeGeneratorService> serviceCache = Caffeine.newBuilder()
             .maximumSize(1000)
-            .expireAfterWrite(Duration.ofMinutes(30))
+//            .expireAfterWrite(Duration.ofMinutes(30))  -->强制删除
             .expireAfterAccess(Duration.ofMinutes(30))
             .removalListener((key, value, cause) -> log.info("Cache removed key: {} with value: {}", key, value))
             .build();
     public AiCodeGeneratorService createAiCodeGeneratorService(long appId, long version,CodeGenTypeEnum type) {
+        // 清理旧缓存
+        redisChatMemoryStore.deleteMessages(appId);
         MessageWindowChatMemory messageWindowChatMemory = MessageWindowChatMemory
                 .builder()
-                .id(appId)
-                .maxMessages(20)
+                .id(buildCacheKey(appId, version, type))
+                .maxMessages(30)
                 .chatMemoryStore(redisChatMemoryStore)
                 .build();
-        chatHistoryServiceProvider.getObject().loadHistoryMessage(messageWindowChatMemory, appId, 20L);
+        chatHistoryServiceProvider.getObject().loadHistoryMessage(messageWindowChatMemory, appId, 30L);
 
       return  switch (type){
             case VUE_PROJECT -> {
@@ -118,6 +125,7 @@ public class AiCodeGeneratorFacade {
     public String buildCacheKey(Long appId, Long version, CodeGenTypeEnum type) {
         return appId + ":" + version + ":" + type;
     }
+
     public Flux<String> processCodeStream(Flux<String> flux,CodeGenTypeEnum type,Long appId,Long version){
         if(type == null){
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
@@ -171,8 +179,20 @@ public class AiCodeGeneratorFacade {
                     })
                     .onError((Throwable error) -> {
                         log.error("AI 响应流错误: {}", error.getMessage(), error);
-                        // 对于 JSON 解析错误，给出友好提示
-                        if (error.getMessage() != null && error.getMessage().contains("JsonParseException")) {
+                        Throwable cause = error;
+                        while (cause != null) {
+                            if (cause instanceof com.fasterxml.jackson.core.JsonParseException ||
+                                cause instanceof com.fasterxml.jackson.core.io.JsonEOFException) {
+                                AiResponseMessage errorMsg = new AiResponseMessage("\n\n[AI 响应格式错误] 工具调用参数解析失败，请重试。\n\n");
+                                sink.next(JSONUtil.toJsonStr(errorMsg));
+                                sink.complete();
+                                return;
+                            }
+                            cause = cause.getCause();
+                        }
+                        if (error.getMessage() != null && 
+                            (error.getMessage().contains("JsonParseException") 
+                             || error.getMessage().contains("JsonEOFException"))) {
                             AiResponseMessage errorMsg = new AiResponseMessage("\n\n[AI 响应格式错误] 工具调用参数解析失败，请重试。\n\n");
                             sink.next(JSONUtil.toJsonStr(errorMsg));
                             sink.complete();
@@ -218,17 +238,38 @@ public class AiCodeGeneratorFacade {
         }
 
         AiCodeGeneratorService service = getAiCodeGeneratorService(appId, version, codeGenTypeEnum);
+        //记忆存入redis
+
         return switch (codeGenTypeEnum) {
             case VUE_PROJECT -> {
-                // 异步预初始化 Vue 项目（创建骨架 + npm install）
                 String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + AppConstant.VUE_PREFIX + appId + "_" + version;
-                CompletableFuture.runAsync(() -> {
+
+                // 阶段一：同步复制模板文件（<1 秒），确保 AI 生成代码前模板已就位
+                // 同步避免了与 WriteToFile 工具的竞态条件（初始化需删除旧目录再重建）
+                try {
+                    log.info("开始复制 Vue 模板: {}", projectPath);
+                    boolean copied = vueProjectInitializer.copyTemplate(projectPath);
+                    if (!copied) {
+                        throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Vue 模板复制失败");
+                    }
+                    log.info("Vue 模板复制完成: {}", projectPath);
+                } catch (BusinessException e) {
+                    throw e;
+                } catch (Exception e) {
+                    log.error("Vue 模板复制失败: {}", e.getMessage(), e);
+                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Vue 模板复制失败: " + e.getMessage());
+                }
+
+                // 阶段二：异步安装 npm 依赖（~30 秒），不阻塞 AI 代码生成
+                // buildOnly() 已有兜底：如果构建时 node_modules 不存在会补执行 npm install
+                Thread.startVirtualThread(() -> {
                     try {
-                        vueProjectInitializer.initialize(projectPath);
+                        vueProjectInitializer.installDependencies(projectPath);
                     } catch (Exception e) {
-                        log.error("Vue 项目初始化失败: {}", e.getMessage(), e);
+                        log.error("npm 依赖异步安装失败: {}", e.getMessage(), e);
                     }
                 });
+
                 TokenStream tokenStream = service.generateVueCodeStream(appId, userMessage);
                 yield processTokenStream(tokenStream);
             }
@@ -260,5 +301,10 @@ public class AiCodeGeneratorFacade {
     }
 
 
-
+    public void clearAppMemory(Long appId, Long version,CodeGenTypeEnum type) {
+        String key = buildCacheKey(appId, version, type);
+        redisChatMemoryStore.deleteMessages(key);
+        //清理 caffeine
+        serviceCache.invalidate(key);
+    }
 }

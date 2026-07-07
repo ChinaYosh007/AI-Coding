@@ -5,6 +5,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.yosh.coding.core.AiCodeGeneratorFacade;
@@ -43,6 +44,7 @@ import org.redisson.client.RedisException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 
 import java.io.File;
@@ -92,6 +94,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     @Resource
     private BuilderVueCommand builderVueCommand;
 
+    private  CodeGenTypeEnum getAppType(Long appId){
+        return CodeGenTypeEnum.getEnumByValue(getById(appId).getCodeGenType());
+    }
     @Override
     public Long getAppChatHistoryStats(Long appId) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID不能为空");
@@ -102,7 +107,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     @Override
     public String exportAppChatHistoryAsMarkdown(Long appId) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID不能为空");
-        QueryWrapper queryWrapper = QueryWrapper.create().eq(ChatHistory::getAppId, appId);
+        QueryWrapper queryWrapper = QueryWrapper.create()
+                .eq(ChatHistory::getAppId, appId)
+                .orderBy(ChatHistory::getCreateTime, true);
         List<ChatHistory> chatHistoryList = chatHistoryService.list(queryWrapper);
         return chatHistoryList.stream().map(chatHistory -> {
             String message = chatHistory.getMessage();
@@ -112,17 +119,22 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     }
 
     @Override
-    public void summarizeAppChatHistoryMemory(Long appId) {
+    @Transactional
+    public void summarizeAppChatHistoryMemory(Long appId, Long version) {
         String markdown = exportAppChatHistoryAsMarkdown(appId);
         String str = aiCodeGeneratorFacade.summarizeAppChatHistoryMemory(markdown, appId);
-        //清楚旧的数据
+        //处理旧的数据
         chatHistoryService.remove(QueryWrapper.create().eq(ChatHistory::getAppId, appId));
         chatHistoryService.save(BeanUtil.toBean(ChatHistory.builder().appId(appId).message(str).messageType(MessageTypeEnum.AI.getValue()).build(), ChatHistory.class));
+        //获取文件类型
+        CodeGenTypeEnum type = getAppType(appId);
+        aiCodeGeneratorFacade.clearAppMemory(appId,version,type);
     }
 
     @Override
     public String getAppChatHistoryMemory(Long appId) {
-        return aiCodeGeneratorFacade.getAppChatHistoryMemory(appId);
+        String chatHistory = exportAppChatHistoryAsMarkdown(appId);
+        return JSONUtil.toJsonStr(Map.of("chatHistory", chatHistory));
     }
 
     @Override
@@ -209,6 +221,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         ThrowUtils.throwIf(zipFile == null || !zipFile.exists(), ErrorCode.OPERATION_ERROR, "zip app source failed");
         return zipFile;
     }
+
 
     private File zipAppSource(File sourceDir, Long appId, Long version) {
         File zipFile = FileUtil.file(FileUtil.getTmpDirPath(), "app-" + appId + "-v" + version + ".zip");
