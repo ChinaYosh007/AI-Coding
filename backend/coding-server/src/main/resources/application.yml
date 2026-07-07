@@ -1,0 +1,74 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+  reactive:
+    session:
+      cookie:
+        max-age: 2592000 # 30 days
+spring:
+  application:
+    name: AI-Coding
+    session:
+      store-type: redis
+      timeout: 2592000
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:coding-server/.env[.properties]
+  profiles:
+    active: local
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_URL}:${MYSQL_PORT}/${MYSQL_DATABASE}
+    username: ${MYSQL_ACCOUNT}
+    password: ${MYSQL_PASSWORD}
+    hikari:
+      initialization-fail-timeout: 5000
+      connection-timeout: ${MYSQL_CONNECTION_TIMEOUT:10000}
+      validation-timeout: ${MYSQL_VALIDATION_TIMEOUT:3000}
+      keepalive-time: ${MYSQL_KEEPALIVE_TIME:30000}
+      max-lifetime: ${MYSQL_MAX_LIFETIME:120000}
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      username: ${REDIS_USERNAME:default}
+      password: ${REDIS_PASSWORD}
+      database: ${REDIS_DB:0}
+      ttl: 2592000
+      timeout: 30000
+      connect-timeout: 30000
+      retry-attempts: 3
+      retry-interval: 1500
+logging:
+  file:
+    name: logs/ai-coding.log
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 30
+  level:
+    root: info
+    com.yosh.coding: debug
+# AI
+langchain4j:
+  open-ai:
+    chat-model:
+      base-url: https://api.deepseek.com
+      api-key: ${DEEPSEEK_API_KEY}
+      model-name: deepseek-chat
+      log-requests: true
+      log-responses: true
+      max-tokens: 32575
+      strict-json-schema: true
+      response-format: json_object
+      max-retries: 3
+    streaming-chat-model:
+      base-url: https://api.deepseek.com
+      api-key: ${DEEPSEEK_API_KEY}
+      model-name: deepseek-chat
+      max-tokens: 32575
+      log-requests: true
+      log-responses: true
+

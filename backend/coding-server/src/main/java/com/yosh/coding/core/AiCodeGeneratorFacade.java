@@ -1,0 +1,264 @@
+package com.yosh.coding.core;
+
+import cn.hutool.json.JSONUtil;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.yosh.coding.artificalIntelligence.AiCodeGeneratorService;
+import com.yosh.coding.artificalIntelligence.model.HtmlCodeResult;
+import com.yosh.coding.artificalIntelligence.model.MultiFileCodeResult;
+import com.yosh.coding.artificalIntelligence.model.message.AiResponseMessage;
+import com.yosh.coding.artificalIntelligence.model.message.ToolExecutedMessage;
+import com.yosh.coding.artificalIntelligence.skill.WriteToFile;
+import com.yosh.coding.core.parser.CodeParserExcutor;
+import com.yosh.coding.core.saver.CodeFilleSaveExecutor;
+import com.yosh.coding.service.ChatHistoryService;
+import com.yosh.exception.BusinessException;
+import com.yosh.exception.ErrorCode;
+import com.yosh.model.enums.CodeGenTypeEnum;
+import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.service.tool.ToolExecution;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.SignalType;
+
+import java.io.File;
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+
+import com.yosh.coding.core.builder.VueProjectInitializer;
+import com.yosh.model.constants.AppConstant;
+
+/**
+ * AI 代码生成外观类，组合生成和保存功�?
+ */
+@Slf4j
+@Service
+public class AiCodeGeneratorFacade {
+    private static final int MAX_VUE_TOOL_INVOCATIONS = 18;
+    private static final Duration VUE_STREAM_TIMEOUT = Duration.ofMinutes(5);
+
+    @Resource
+    private AiCodeGeneratorService aiCodeGeneratorService;
+    @Resource
+    private RedisChatMemoryStore redisChatMemoryStore;
+    @Autowired
+    private ObjectProvider<ChatHistoryService> chatHistoryServiceProvider;
+    @Resource(name = "openAiStreamingChatModel")
+    private StreamingChatModel openAiStreamingChatModel;
+    @Autowired
+    private ChatModel chatModel;
+    @Resource
+    private VueProjectInitializer vueProjectInitializer;
+    /**
+     * 缓存内部
+     * @param appId
+     * @param version
+     * @param type
+     * @return
+     */
+    private final Cache<String, AiCodeGeneratorService> serviceCache = Caffeine.newBuilder()
+            .maximumSize(1000)
+            .expireAfterWrite(Duration.ofMinutes(30))
+            .expireAfterAccess(Duration.ofMinutes(30))
+            .removalListener((key, value, cause) -> log.info("Cache removed key: {} with value: {}", key, value))
+            .build();
+    public AiCodeGeneratorService createAiCodeGeneratorService(long appId, long version,CodeGenTypeEnum type) {
+        MessageWindowChatMemory messageWindowChatMemory = MessageWindowChatMemory
+                .builder()
+                .id(appId)
+                .maxMessages(20)
+                .chatMemoryStore(redisChatMemoryStore)
+                .build();
+        chatHistoryServiceProvider.getObject().loadHistoryMessage(messageWindowChatMemory, appId, 20L);
+
+      return  switch (type){
+            case VUE_PROJECT -> {
+                AiCodeGeneratorService build = AiServices.builder(AiCodeGeneratorService.class)
+                        .chatModel(chatModel)
+                        .streamingChatModel(openAiStreamingChatModel)
+                        .tools(new WriteToFile(appId, version))
+                        .chatMemoryProvider(id -> messageWindowChatMemory)
+                        .hallucinatedToolNameStrategy((request) -> ToolExecutionResultMessage.from(request,
+                                "error: there no tool called " + request.name()))
+                        .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS)
+                        .build();
+                yield build;
+            }
+            case HTML, MULTI_FILE -> {
+                AiCodeGeneratorService build = AiServices.builder(AiCodeGeneratorService.class)
+                        .chatModel(chatModel)
+                        .streamingChatModel(openAiStreamingChatModel)
+                        .chatMemoryProvider(id -> messageWindowChatMemory)
+                        .build();
+                yield build;
+
+            }
+            default -> throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的生成类型:" + type.getValue());
+        };
+
+    }
+    public  AiCodeGeneratorService getAiCodeGeneratorService(Long appId,Long version){
+        return this.getAiCodeGeneratorService(appId, version, CodeGenTypeEnum.HTML);
+    }
+    public  AiCodeGeneratorService getAiCodeGeneratorService(Long appId, Long version, CodeGenTypeEnum type) {
+        String cacheKey = buildCacheKey(appId, version, type);
+        return serviceCache.get(cacheKey, k -> createAiCodeGeneratorService(appId, version, type));
+    }
+    public String buildCacheKey(Long appId, Long version, CodeGenTypeEnum type) {
+        return appId + ":" + version + ":" + type;
+    }
+    public Flux<String> processCodeStream(Flux<String> flux,CodeGenTypeEnum type,Long appId,Long version){
+        if(type == null){
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
+        }
+        StringBuilder str = new StringBuilder();
+        return flux.doOnNext(str::append)
+                .doFinally(signalType -> {
+                    // 无论流是完成、错误还是取消，都执行保存
+                    if (!signalType.equals(SignalType.CANCEL)) {
+                        try{
+                            String content = str.toString();
+                            log.info("Code content length: {}", content.length());
+                            Object exec = CodeParserExcutor.executeCode(content,type);
+                            log.info("Code parsed successfully: {}", exec.getClass().getSimpleName());
+                            File file = CodeFilleSaveExecutor.saveFile(exec,type,appId,version);
+                            log.info("save file success: {}", file.getAbsolutePath());
+                        }catch (Exception e){
+                            log.error("save file failed: {}", e.getMessage(), e);
+                            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to save code: " + e.getMessage());
+                        }
+                    } else {
+                        log.warn("Stream cancelled, skipping save");
+                    }
+                });
+    }
+    /**
+     * 将 TokenStream 转换为 Flux<String>，并传递工具调用信息
+     *
+     * @param tokenStream TokenStream 对象
+     * @return Flux<String> 流式响应
+     */
+    private Flux<String> processTokenStream(TokenStream tokenStream) {
+        return Flux.<String>create(sink -> {
+            tokenStream.onPartialResponse((String partialResponse) -> {
+                        AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
+                        sink.next(JSONUtil.toJsonStr(aiResponseMessage));
+                    })
+                    .onToolExecuted((ToolExecution toolExecution) -> {
+                        try {
+                            ToolExecutedMessage toolExecutedMessage = new ToolExecutedMessage(toolExecution);
+                            sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
+                        } catch (Exception e) {
+                            log.error("处理工具执行结果失败: {}, 错误: {}", toolExecution.request().name(), e.getMessage());
+                            // 发送一个错误消息而不是让流崩溃
+                            AiResponseMessage errorMsg = new AiResponseMessage("\n\n[工具调用失败] " + e.getMessage() + "\n\n");
+                            sink.next(JSONUtil.toJsonStr(errorMsg));
+                        }
+                    })
+                    .onCompleteResponse((ChatResponse response) -> {
+                        sink.complete();
+                    })
+                    .onError((Throwable error) -> {
+                        log.error("AI 响应流错误: {}", error.getMessage(), error);
+                        // 对于 JSON 解析错误，给出友好提示
+                        if (error.getMessage() != null && error.getMessage().contains("JsonParseException")) {
+                            AiResponseMessage errorMsg = new AiResponseMessage("\n\n[AI 响应格式错误] 工具调用参数解析失败，请重试。\n\n");
+                            sink.next(JSONUtil.toJsonStr(errorMsg));
+                            sink.complete();
+                        } else {
+                            sink.error(error);
+                        }
+                    })
+                    .start();
+        }).timeout(VUE_STREAM_TIMEOUT);
+    }
+    /**
+     * 统一入口：根据类型生成并保存代码
+     *
+     * @param userMessage     用户提示�?
+     * @param codeGenTypeEnum 生成类型
+     * @return 保存的目�?
+     */
+    public File generateAndSaveCode(String userMessage, CodeGenTypeEnum codeGenTypeEnum,Long appId,Long version) {
+        if (codeGenTypeEnum == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
+        }
+        AiCodeGeneratorService service = getAiCodeGeneratorService(appId, version, codeGenTypeEnum);
+        return switch (codeGenTypeEnum) {
+            case HTML -> {
+
+                HtmlCodeResult file = service.generateHtmlCode(appId,userMessage);
+                yield CodeFilleSaveExecutor.saveFile(file,CodeGenTypeEnum.HTML,appId, version);
+
+            }
+            case MULTI_FILE -> {
+                MultiFileCodeResult file = service.generateMultiFileCode(appId,userMessage);
+                yield CodeFilleSaveExecutor.saveFile(file,CodeGenTypeEnum.MULTI_FILE,appId,version);
+            }
+            default -> {
+                String errorMessage = "不支持的生成类型:" + codeGenTypeEnum.getValue();
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, errorMessage);
+            }
+        };
+    }
+    public Flux<String> generateAndSaveCodeStream(String userMessage, CodeGenTypeEnum codeGenTypeEnum, Long appId, Long version) {
+        if (codeGenTypeEnum == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
+        }
+
+        AiCodeGeneratorService service = getAiCodeGeneratorService(appId, version, codeGenTypeEnum);
+        return switch (codeGenTypeEnum) {
+            case VUE_PROJECT -> {
+                // 异步预初始化 Vue 项目（创建骨架 + npm install）
+                String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + AppConstant.VUE_PREFIX + appId + "_" + version;
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        vueProjectInitializer.initialize(projectPath);
+                    } catch (Exception e) {
+                        log.error("Vue 项目初始化失败: {}", e.getMessage(), e);
+                    }
+                });
+                TokenStream tokenStream = service.generateVueCodeStream(appId, userMessage);
+                yield processTokenStream(tokenStream);
+            }
+            case HTML -> {
+                Flux<String> flux = service.generateHtmlCodeStream(appId,userMessage);
+                yield processCodeStream(flux,CodeGenTypeEnum.HTML,appId,version);
+            }
+            case MULTI_FILE -> {
+                Flux<String> flux = service.generateMultiFileCodeStream(appId,userMessage);
+                yield processCodeStream(flux,CodeGenTypeEnum.MULTI_FILE,appId,version);
+            }
+            default -> {
+                String errorMessage = "不支持的生成类型:" + codeGenTypeEnum.getValue();
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, errorMessage);
+            }
+        };
+    }
+
+    public String generateAppName(String initPrompt) {
+        return aiCodeGeneratorService.generateAppName(initPrompt);
+    }
+
+    public String summarizeAppChatHistoryMemory(String markdown, Long appId) {
+        return aiCodeGeneratorService.summarizeAppChatHistoryMemory(markdown, appId);
+    }
+
+    public String getAppChatHistoryMemory(Long appId) {
+        return aiCodeGeneratorService.getAppChatHistoryMemory(appId);
+    }
+
+
+
+}
