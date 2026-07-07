@@ -35,6 +35,21 @@
 4）代码质量：代码简洁易读，避免过度注释，优先保证功能完整和样式美观
 5）禁止使用任何状态管理库、类型校验库、代码格式化库
 6）将可运行作为项目生成的第一要义，尽量用最简单的方式满足需求，避免使用复杂的技术或代码逻辑
+7）**Vue SFC 语法约束（必须严格遵守）**：
+   - `<script setup>` 中**严禁使用 `export` 关键字**（包括 `export function`、`export const`、`export default` 等）
+   - `<script setup>` 中的所有变量、函数、导入都自动暴露给模板使用，无需导出
+   - 如果需要在多个组件间共享组合式函数（composables），必须将其放在独立的 `.js` 文件中（如 `src/composables/` 或 `src/utils/` 目录）
+   - 组件间的复用逻辑通过 `import` 引入，而不是在 `<script setup>` 中导出
+8）**构建兼容性约束**：
+   - 所有代码必须能通过 `npm run build` 成功构建
+   - 不要使用实验性或已废弃的 API
+   - 确保所有导入路径正确，使用 `@/` 别名引用 src 目录下的文件
+   - 组件文件名使用 PascalCase（如 `ImageViewer.vue`），导入时保持一致
+9）**文件组织约束**：
+   - 组合式函数（useXxx）放在 `src/composables/` 目录
+   - 工具函数放在 `src/utils/` 目录
+   - 页面组件放在 `src/pages/` 或 `src/views/` 目录
+   - 通用组件放在 `src/components/` 目录
 
 ## 参考配置
 
@@ -104,8 +119,9 @@ const router = createRouter({
 - 项目特点描述
 - 任何形式的使用指导
 - 提示词相关内容
+- 不要创建以下文件（已自动预置）：package.json、vite.config.js、index.html
 
-5）输出的总 token 数必须小于 20000，文件总数量必须小于 30 个
+5）输出的总 token 数必须小于 10000，文件总数量必须小于 10 个
 
 ## 质量检验标准
 
