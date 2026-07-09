@@ -5,14 +5,14 @@ declare namespace API {
   }
 
   type AppAdminUpdateRequest = {
-    id?: number
+    id?: string
     appName?: string
     cover?: string
     priority?: number
   }
 
   type AppCollaborationInviteRequest = {
-    appId?: number
+    appId?: string
     userAccount?: string
   }
 
@@ -25,7 +25,7 @@ declare namespace API {
   }
 
   type AppDeployRequest = {
-    appId?: number
+    appId?: string
     version?: number
   }
 
@@ -34,7 +34,7 @@ declare namespace API {
     pageSize?: number
     sortField?: string
     sortOrder?: string
-    id?: number
+    id?: string
     appName?: string
     cover?: string
     initPrompt?: string
@@ -45,12 +45,12 @@ declare namespace API {
   }
 
   type AppUpdateRequest = {
-    id?: number
+    id?: string
     appName?: string
   }
 
   type AppVO = {
-    id?: number
+    id?: string
     appName?: string
     cover?: string
     initPrompt?: string
@@ -66,7 +66,7 @@ declare namespace API {
 
   type AppVersion = {
     id?: number
-    appId?: number
+    appId?: string
     version?: number
     codeGenType?: string
     sourcePath?: string
@@ -153,7 +153,7 @@ declare namespace API {
     id?: number
     message?: string
     messageType?: string
-    appId?: number
+    appId?: string
     userId?: number
     createTime?: string
     updateTime?: string
@@ -168,31 +168,31 @@ declare namespace API {
     id?: number
     message?: string
     messageType?: string
-    appId?: number
+    appId?: string
     userId?: number
     lastCreateTime?: string
   }
 
   type chatToGenCodeParams = {
-    appId: number
+    appId: string
     message: string
   }
 
   type DeleteRequest = {
-    id?: number
+    id?: string | number
   }
 
   type downloadAppCodeParams = {
-    appId: number
+    appId: string
     version?: number
   }
 
   type getAppVOByIdByAdminParams = {
-    id: number
+    id: string
   }
 
   type getAppVOByIdParams = {
-    id: number
+    id: string
   }
 
   type getAppVersionInfoParams = {
@@ -208,7 +208,7 @@ declare namespace API {
   }
 
   type listAppChatHistoryParams = {
-    appId: number
+    appId: string
     pageSize?: number
     lastCreateTime?: string
   }

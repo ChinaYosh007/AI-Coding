@@ -187,7 +187,7 @@ const doSearch = () => {
 }
 
 // 查看应用对话
-const viewAppChat = (appId: number | undefined) => {
+const viewAppChat = (appId: string | undefined) => {
   if (appId) {
     router.push(`/app/chat/${appId}`)
   }

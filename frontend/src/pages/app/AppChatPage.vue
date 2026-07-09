@@ -91,6 +91,12 @@
           </div>
         </div>
         <!-- 消息区域 -->
+        <div class="chat-overview">
+          <div v-for="item in chatOverviewItems" :key="item.label" class="chat-overview-item">
+            <span class="chat-overview-label">{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
         <div class="messages-container" ref="messagesContainer">
           <!-- 加载更多按钮 -->
           <div v-if="hasMoreHistory" class="load-more-container">
@@ -100,7 +106,10 @@
           </div>
           <div v-for="(message, index) in messages" :key="index" class="message-item">
             <div v-if="message.type === 'user'" class="user-message">
-              <div class="message-content">{{ message.content }}</div>
+              <div class="message-content">
+                <div class="message-meta">你 · {{ formatMessageTime(message.createTime) }}</div>
+                {{ message.content }}
+              </div>
               <div class="message-avatar">
                 <a-avatar :src="loginUserStore.loginUser.userAvatar" />
               </div>
@@ -110,7 +119,36 @@
                 <a-avatar :src="aiAvatar" />
               </div>
               <div class="message-content">
+                <div class="message-meta">AI 助手 · {{ formatMessageTime(message.createTime) }}</div>
                 <MarkdownRenderer v-if="message.content" :content="message.content" />
+                <div v-if="message.streamInfo" class="generation-activity">
+                  <div class="generation-activity-header">
+                    <span>{{ message.streamInfo.currentAction }}</span>
+                    <strong>{{ formatGeneratedSize(message.streamInfo.totalChars) }}</strong>
+                  </div>
+                  <div class="generation-steps">
+                    <span
+                        v-for="(step, stepIndex) in generationSteps"
+                        :key="step"
+                        class="generation-step"
+                        :class="{
+                          done: stepIndex < message.streamInfo.stage,
+                          active: stepIndex === message.streamInfo.stage,
+                        }"
+                    >
+                      {{ step }}
+                    </span>
+                  </div>
+                  <div v-if="message.streamInfo.fileNames.length" class="generation-files">
+                    <span
+                        v-for="fileName in message.streamInfo.fileNames"
+                        :key="fileName"
+                        :title="fileName"
+                    >
+                      {{ fileName }}
+                    </span>
+                  </div>
+                </div>
                 <div v-if="message.loading" class="loading-indicator">
                   <span class="typing-dots">
                     <i></i><i></i><i></i>
@@ -244,6 +282,20 @@
           <h3 class="preview-title">实时预览</h3>
           <div class="preview-actions">
             <a-button
+                v-if="previewUrl || selectedVersion || latestVersion"
+                type="text"
+                size="small"
+                class="preview-action-btn"
+                :loading="previewLoading"
+                :disabled="isGenerating && !previewUrl"
+                @click="loadPreview"
+            >
+              <template #icon>
+                <ReloadOutlined />
+              </template>
+              {{ previewUrl ? '重新加载' : '加载预览' }}
+            </a-button>
+            <a-button
                 v-if="selectedVersion"
                 type="text"
                 size="small"
@@ -295,11 +347,16 @@
           </div>
           <iframe
               v-else
+              :key="previewFrameKey"
               :src="previewUrl"
               class="preview-iframe"
               frameborder="0"
               @load="onIframeLoad"
           ></iframe>
+          <div v-if="previewLoading && previewUrl" class="preview-loading-overlay">
+            <a-spin />
+            <span>正在加载预览页面…</span>
+          </div>
         </div>
       </div>
     </div>
@@ -522,7 +579,7 @@ const loginUserStore = useLoginUserStore()
 
 // 应用信息
 const appInfo = ref<API.AppVO>()
-const appId = ref<any>()
+const appId = ref('')
 
 // 对话相关
 interface Message {
@@ -530,6 +587,15 @@ interface Message {
   content: string
   loading?: boolean
   createTime?: string
+  streamInfo?: StreamInfo
+}
+
+interface StreamInfo {
+  totalChars: number
+  stage: number
+  currentAction: string
+  fileNames: string[]
+  updatedAt?: string
 }
 
 interface SourceFile {
@@ -573,6 +639,10 @@ const exportingChat = ref(false)
 // 预览相关
 const previewUrl = ref('')
 const previewReady = ref(false)
+const previewLoading = ref(false)
+const previewFrameKey = ref(0)
+const usingDevServerPreview = ref(false)
+let previewLoadTimer: number | undefined
 
 // 部署相关
 const deploying = ref(false)
@@ -669,6 +739,54 @@ const currentSourceFile = computed(() => {
 })
 
 // 应用详情相关
+const generationSteps = ['需求拆解', '页面结构', '样式交互', '代码整理']
+
+const displayTotalMessages = computed(() => {
+  return Math.max(chatStats.value.totalMessages ?? 0, messages.value.length)
+})
+
+const displayLastActiveTime = computed(() => {
+  const latestMessageTime = messages.value[messages.value.length - 1]?.createTime
+  return latestMessageTime || chatStats.value.lastActiveTime || appInfo.value?.updateTime
+})
+
+const latestGeneratedVersionLabel = computed(() => {
+  return latestVersion.value ? `V${latestVersion.value}` : '待生成'
+})
+
+const memoryOverviewStatus = computed(() => {
+  if (memoryLoading.value) return '读取中'
+  return appMemory.value?.enabled ? '已沉淀' : '待总结'
+})
+
+const collaboratorOverviewText = computed(() => {
+  if (collaborationLoading.value) return '读取中'
+  return collaborators.value.length ? `${collaborators.value.length} 人` : '仅自己'
+})
+
+const chatOverviewItems = computed(() => [
+  {
+    label: '消息',
+    value: `${displayTotalMessages.value} 条`,
+  },
+  {
+    label: '版本',
+    value: latestGeneratedVersionLabel.value,
+  },
+  {
+    label: '记忆',
+    value: memoryOverviewStatus.value,
+  },
+  {
+    label: '协作',
+    value: collaboratorOverviewText.value,
+  },
+  {
+    label: '最近',
+    value: formatMessageTime(displayLastActiveTime.value),
+  },
+])
+
 const appDetailVisible = ref(false)
 
 // 显示应用详情
@@ -843,7 +961,7 @@ const exportChatMarkdown = async () => {
 
   exportingChat.value = true
   try {
-    const res = await exportAppChatHistoryAsMarkdown(Number(appId.value), {
+    const res = await exportAppChatHistoryAsMarkdown(appId.value, {
       timeout: 30000,
       validateStatus: (status: number) => status < 500,
     })
@@ -874,7 +992,7 @@ const loadChatStats = async () => {
 
   chatStatsLoading.value = true
   try {
-    const res = await getAppChatHistoryStats(Number(appId.value), {
+    const res = await getAppChatHistoryStats(appId.value, {
       timeout: 10000,
       validateStatus: (status: number) => status < 500,
     })
@@ -910,7 +1028,7 @@ const loadMemory = async () => {
 
   memoryLoading.value = true
   try {
-    const res = await getAppChatHistoryMemory(Number(appId.value), {
+    const res = await getAppChatHistoryMemory(appId.value, {
       timeout: 10000,
       validateStatus: (status: number) => status < 500,
     })
@@ -936,7 +1054,7 @@ const summarizeMemory = async () => {
 
   memorySaving.value = true
   try {
-    const res = await summarizeAppChatHistoryMemory(Number(appId.value))
+    const res = await summarizeAppChatHistoryMemory(appId.value)
     if (res.data.code === 0) {
       await loadMemory()
       message.success('记忆摘要已更新')
@@ -961,7 +1079,7 @@ const loadCollaborators = async () => {
 
   collaborationLoading.value = true
   try {
-    const res = await getAppCollaborationMembers(Number(appId.value), {
+    const res = await getAppCollaborationMembers(appId.value, {
       timeout: 10000,
       validateStatus: (status: number) => status < 500,
     })
@@ -988,8 +1106,8 @@ const inviteCollaborator = async () => {
 
   collaborationSaving.value = true
   try {
-    const res = await inviteAppCollaborator(Number(appId.value), {
-      appId: Number(appId.value),
+    const res = await inviteAppCollaborator(appId.value, {
+      appId: appId.value,
       userAccount,
     })
     if (res.data.code === 0) {
@@ -1007,22 +1125,123 @@ const inviteCollaborator = async () => {
   }
 }
 
+const formatMessageTime = (time?: string) => {
+  if (!time) return '刚刚'
+  const formatted = formatTime(time)
+  return formatted || '刚刚'
+}
+
+const formatGeneratedSize = (totalChars: number) => {
+  if (totalChars >= 1000) {
+    return `${(totalChars / 1000).toFixed(1)}k 字符`
+  }
+  return `${totalChars} 字符`
+}
+
+const getStreamStage = (totalChars: number, fileCount: number) => {
+  if (fileCount >= 2 || totalChars > 30000) return 3
+  if (fileCount >= 1 || totalChars > 12000) return 2
+  if (totalChars > 3000) return 1
+  return 0
+}
+
+const generationStatusMessages = [
+  [
+    '已收到需求，正在拆解页面结构和内容模块。',
+    '正在理解你的描述，规划导航、主体内容和预览入口。',
+    '正在整理页面文案与演示数据，让内容更完整。',
+    '正在准备生成文件，右侧预览会在服务就绪后自动更新。',
+  ],
+  [
+    '正在生成页面骨架，导航、内容区和页脚会一起整理。',
+    '正在补充核心模块与页面结构，请稍等。',
+    '正在把需求转成可运行的前端代码。',
+    '正在组织页面区块顺序，避免内容显得单薄。',
+  ],
+  [
+    '页面主体已经生成，正在完善样式和交互细节。',
+    '正在优化按钮、卡片和响应式布局。',
+    '正在补充预览体验，等待开发服务热加载完成。',
+    '正在检查资源路径和页面状态，确保右侧可以加载。',
+  ],
+  [
+    '正在完成最后的代码整理，后端会启动预览服务。',
+    '正在等待 npm run dev 完成，服务就绪后将自动加载。',
+    '正在收尾生成文件和热加载地址。',
+    '即将刷新右侧预览，你也可以稍后手动重新加载。',
+  ],
+]
+
+const getRotatingMessage = (messages: string[], tick: number) => {
+  return messages[tick % messages.length]
+}
+
+const buildGenerationStatusMessage = (
+  aiText: string,
+  pendingFile: string,
+  writtenFiles: string[],
+  devServerUrl: string,
+  tick: number,
+  completed = false,
+) => {
+  if (completed) {
+    const summary = writtenFiles.length > 0 ? `本次已生成 ${writtenFiles.length} 个文件。` : '本次生成已完成。'
+    return devServerUrl
+      ? `${summary}\n\n预览服务已启动，右侧已切换到最新热加载页面。你可以继续描述修改需求。`
+      : `${summary}\n\n暂未收到热加载地址，已使用静态预览兜底。你可以点击右侧“重新加载”刷新页面。`
+  }
+
+  const stage = getStreamStage(aiText.length, writtenFiles.length)
+  const lines = [getRotatingMessage(generationStatusMessages[stage], tick)]
+  if (pendingFile) {
+    lines.push(`正在处理：\`${pendingFile}\``)
+  } else if (writtenFiles.length > 0) {
+    lines.push(`已完成文件：${writtenFiles.length} 个`)
+  }
+  if (writtenFiles.length > 0) {
+    lines.push(`最近完成：${writtenFiles.slice(-3).map((fileName) => `\`${fileName}\``).join('、')}`)
+  }
+  lines.push(
+    devServerUrl
+      ? '开发服务器已就绪，右侧预览正在加载最新页面。'
+      : '后端完成 npm run dev 并返回地址后，右侧会自动加载。',
+  )
+  return lines.join('\n\n')
+}
+
+const extractGeneratedFileName = (chunk: string) => {
+  const fileMatch =
+      chunk.match(/写入文件\s+([^\s\n]+)/) ||
+      chunk.match(/write(?:\s+to)?\s+file\s+([^\s\n]+)/i) ||
+      chunk.match(/relative(?:File)?Path["']?\s*[:=]\s*["']([^"']+)/i)
+  return fileMatch?.[1]?.replace(/[，,。.;；]+$/, '') || ''
+}
+
+const parseBackendTextMessage = (text: string) => {
+  if (text.includes('[选择工具] 写入文件')) {
+    return { type: 'tool_request', data: text }
+  }
+  if (text.includes('[工具调用] 写入文件')) {
+    return {
+      type: 'tool_executed',
+      data: text,
+      filePath: extractGeneratedFileName(text),
+    }
+  }
+  return null
+}
+
+const createStreamInfo = (): StreamInfo => ({
+  totalChars: 0,
+  stage: 0,
+  currentAction: '已连接生成流，正在理解需求',
+  fileNames: [],
+  updatedAt: new Date().toISOString(),
+})
+
 const truncateText = (text?: string, maxLength = 60) => {
   if (!text) return ''
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
-}
-
-const buildGeneratingMessage = (contentLength: number) => {
-  if (contentLength > 30000) {
-    return '正在完成最后的代码整理，马上刷新右侧预览。'
-  }
-  if (contentLength > 12000) {
-    return '页面主体已经生成，正在完善样式和交互细节。'
-  }
-  if (contentLength > 3000) {
-    return '正在生成页面结构和核心内容，请稍等。'
-  }
-  return '收到需求，正在开始生成网站。'
 }
 
 const buildGenerateDoneMessage = () => {
@@ -1112,15 +1331,18 @@ const fetchAppInfo = async () => {
   appId.value = id
 
   try {
-    const res = await getAppVoById({ id: id as unknown as number })
+    const res = await getAppVoById({ id })
     if (res.data.code === 0 && res.data.data) {
       appInfo.value = res.data.data
 
       // 先加载对话历史
       await loadChatHistory()
       await loadAppVersions()
+      void loadMemory()
+      void loadCollaborators()
       // 如果有至少2条对话记录，展示对应的网站
-      if (messages.value.length >= 2) {
+      // 如果当前已经是后端返回的 dev server 热加载预览，不要覆盖成静态预览
+      if (messages.value.length >= 2 && !usingDevServerPreview.value) {
         updatePreview()
       }
       // 检查是否需要自动发送初始提示词
@@ -1150,6 +1372,7 @@ const sendInitialMessage = async (prompt: string) => {
   messages.value.push({
     type: 'user',
     content: prompt,
+    createTime: new Date().toISOString(),
   })
 
   // 添加AI消息占位符
@@ -1158,6 +1381,8 @@ const sendInitialMessage = async (prompt: string) => {
     type: 'ai',
     content: '',
     loading: true,
+    createTime: new Date().toISOString(),
+    streamInfo: createStreamInfo(),
   })
 
   await nextTick()
@@ -1192,6 +1417,7 @@ const sendMessage = async () => {
   messages.value.push({
     type: 'user',
     content: message,
+    createTime: new Date().toISOString(),
   })
 
   // 发送消息后，清除选中元素并退出编辑模式
@@ -1208,6 +1434,8 @@ const sendMessage = async () => {
     type: 'ai',
     content: '',
     loading: true,
+    createTime: new Date().toISOString(),
+    streamInfo: createStreamInfo(),
   })
 
   await nextTick()
@@ -1218,12 +1446,83 @@ const sendMessage = async () => {
   await generateCode(message, aiMessageIndex)
 }
 
+// 解析 SSE 消息，支持结构化 JSON（type 字段分发）和纯文本向后兼容
+const parseSseMessage = (raw: string): { type: string; data: string; filePath?: string; url?: string } => {
+  const text = raw?.trim()
+  if (!text) return { type: 'unknown', data: '' }
+
+  const backendTextMessage = parseBackendTextMessage(text)
+  if (backendTextMessage) {
+    return backendTextMessage
+  }
+
+  // 尝试解析为 JSON
+  if (text.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text)
+
+      // 结构化消息：带 type 字段
+      if (parsed.type) {
+        switch (parsed.type) {
+          case 'ai_response':
+            return { type: 'ai_response', data: parsed.data ?? '' }
+
+          case 'tool_request':
+            return {
+              type: 'tool_request',
+              data: text,
+              filePath: extractFilePathFromArgs(parsed.arguments),
+            }
+
+          case 'tool_executed':
+            return {
+              type: 'tool_executed',
+              data: text,
+              filePath: extractFilePathFromArgs(parsed.arguments),
+            }
+
+          case 'dev_server':
+            return { type: 'dev_server', data: '', url: parsed.url }
+
+          default:
+            return { type: parsed.type, data: parsed.data ?? text }
+        }
+      }
+
+      // 非结构化 JSON（旧格式 {"d": "..."} 不应该到这里，但兜底）
+      return { type: 'text', data: text }
+    } catch {
+      return { type: 'text', data: text }
+    }
+  }
+
+  return { type: 'text', data: text }
+}
+
+// 从工具参数中提取文件路径
+const extractFilePathFromArgs = (args: unknown): string => {
+  if (!args) return ''
+  try {
+    const obj = typeof args === 'string' ? JSON.parse(args) : args
+    return obj?.relativePath || obj?.relativeFilePath || ''
+  } catch {
+    return ''
+  }
+}
+
 // 生成代码 - 使用 EventSource 处理流式响应
 const generateCode = async (userMessage: string, aiMessageIndex: number) => {
   let eventSource: EventSource | null = null
   let streamCompleted = false
   let renderTimer: number | undefined
-  let lastGeneratingMessage = ''
+  let statusTimer: number | undefined
+  let generatingMessageTick = 0
+
+  // 当前轮次的跟踪状态
+  let aiText = ''
+  const writtenFiles: string[] = []
+  let pendingFile = ''
+  let devServerUrl = ''
 
   try {
     const baseURL = request.defaults.baseURL || API_BASE_URL
@@ -1237,40 +1536,91 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       withCredentials: true,
     })
 
-    let fullContent = ''
+    // 刷新 UI 内容
+    const flushContent = () => {
+      const msg = messages.value[aiMessageIndex]
+      if (!msg) return
 
-    const flushStreamContent = () => {
-      const nextMessage = buildGeneratingMessage(fullContent.length)
-      if (nextMessage !== lastGeneratingMessage) {
-        lastGeneratingMessage = nextMessage
-        messages.value[aiMessageIndex].content = nextMessage
-        scrollToBottom()
+      // 更新 streamInfo（文件列表 + 进度阶段）
+      msg.streamInfo = {
+        totalChars: aiText.length,
+        stage: getStreamStage(aiText.length, writtenFiles.length),
+        currentAction: pendingFile
+          ? `正在写入 ${pendingFile}`
+          : writtenFiles.length > 0
+            ? `已写入 ${writtenFiles.length} 个文件`
+            : '正在生成代码',
+        fileNames: writtenFiles.slice(-4),
+        updatedAt: new Date().toISOString(),
       }
-      messages.value[aiMessageIndex].loading = false
+
+      msg.content = buildGenerationStatusMessage(
+        aiText,
+        pendingFile,
+        writtenFiles,
+        devServerUrl,
+        generatingMessageTick,
+      )
+      msg.loading = !streamCompleted
+      scrollToBottom()
       renderTimer = undefined
     }
 
-    const scheduleStreamContentFlush = () => {
-      if (renderTimer !== undefined) return
-      renderTimer = window.setTimeout(flushStreamContent, 120)
+    const startStatusTicker = () => {
+      flushContent()
+      statusTimer = window.setInterval(() => {
+        if (streamCompleted || !isGenerating.value) return
+        generatingMessageTick += 1
+        flushContent()
+      }, 2200)
     }
+
+    const stopStatusTicker = () => {
+      if (statusTimer !== undefined) {
+        window.clearInterval(statusTimer)
+        statusTimer = undefined
+      }
+    }
+
+    const scheduleFlush = () => {
+      if (renderTimer !== undefined) return
+      renderTimer = window.setTimeout(flushContent, 120)
+    }
+
+    startStatusTicker()
 
     const finishGeneration = () => {
       if (streamCompleted) return
 
       streamCompleted = true
+      stopStatusTicker()
       if (renderTimer !== undefined) {
         window.clearTimeout(renderTimer)
         renderTimer = undefined
       }
-      messages.value[aiMessageIndex].content = buildGenerateDoneMessage()
+
+      // 最终刷新一次内容
+      const msg = messages.value[aiMessageIndex]
+      if (msg) {
+        msg.content = buildGenerationStatusMessage(aiText, '', writtenFiles, devServerUrl, generatingMessageTick, true)
+        msg.loading = false
+        if (msg.streamInfo) {
+          msg.streamInfo.stage = generationSteps.length - 1
+          msg.streamInfo.currentAction = '生成完成'
+          msg.streamInfo.updatedAt = new Date().toISOString()
+        }
+      }
+
       isGenerating.value = false
-      messages.value[aiMessageIndex].loading = false
       eventSource?.close()
 
+      // 刷新应用信息和版本列表
       setTimeout(async () => {
         await fetchAppInfo()
-        updatePreview()
+        // 如果没收到 dev_server，用静态预览兜底
+        if (!devServerUrl) {
+          updatePreview()
+        }
       }, 1000)
     }
 
@@ -1279,12 +1629,12 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       try {
         const errorData = JSON.parse(rawData)
         errorMessage = errorData.message || errorData.data || errorMessage
-        console.error('SSE业务错误事件:', errorData)
-      } catch (parseError) {
-        console.error('SSE业务错误事件:', rawData, parseError)
+      } catch {
+        // 保持原始消息
       }
 
       streamCompleted = true
+      stopStatusTicker()
       if (renderTimer !== undefined) {
         window.clearTimeout(renderTimer)
         renderTimer = undefined
@@ -1296,25 +1646,92 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       message.error(errorMessage)
     }
 
+    // ===== SSE 消息处理 =====
     eventSource.onmessage = function (event) {
       if (streamCompleted) return
 
+      // 流结束标记
       if (event.data?.trim() === 'done' || event.data?.trim() === '[DONE]') {
         finishGeneration()
         return
       }
 
-      let content = event.data
+      // 第一层：SSE 控制器包装 {"d": "..."}
+      let chunk = event.data
       try {
-        const parsed = JSON.parse(event.data)
-        content = parsed.d ?? ''
-      } catch (error) {
-        content = event.data
+        const wrapper = JSON.parse(event.data)
+        if (wrapper.d !== undefined) {
+          chunk = String(wrapper.d)
+        }
+      } catch {
+        // event.data 本身就是内容
       }
 
-      if (content !== undefined && content !== null && content !== '') {
-        fullContent += content
-        scheduleStreamContentFlush()
+      if (!chunk) return
+
+      // 第二层：解析结构化消息
+      const parsed = parseSseMessage(chunk)
+
+      switch (parsed.type) {
+        case 'ai_response':
+          // AI 文本回复 — 追加到文本
+          aiText += parsed.data
+          scheduleFlush()
+          break
+
+        case 'tool_request':
+          // AI 开始写文件
+          if (parsed.filePath) {
+            pendingFile = parsed.filePath
+          }
+          scheduleFlush()
+          break
+
+        case 'tool_executed': {
+          // 文件写入完成
+          const filePath = parsed.filePath
+          if (filePath) {
+            if (!writtenFiles.includes(filePath)) {
+              writtenFiles.push(filePath)
+            }
+            if (pendingFile === filePath) {
+              pendingFile = ''
+            }
+          }
+          scheduleFlush()
+          break
+        }
+
+        case 'dev_server':
+          // 开发服务器已启动 — 立刻更新预览 iframe
+          if (parsed.url) {
+            devServerUrl = parsed.url
+            previewUrl.value = parsed.url
+            previewLoading.value = true
+            previewReady.value = true
+            usingDevServerPreview.value = true
+            previewFrameKey.value += 1
+            if (previewLoadTimer !== undefined) {
+              window.clearTimeout(previewLoadTimer)
+            }
+            previewLoadTimer = window.setTimeout(() => {
+              previewLoading.value = false
+              previewLoadTimer = undefined
+            }, 12000)
+          }
+          scheduleFlush()
+          break
+
+        default:
+          // 纯文本（向后兼容：后端未结构化时，整个 chunk 当文本处理）
+          aiText += chunk
+          // 兼容旧版：从文本中正则提取文件名
+          const legacyFile = extractGeneratedFileName(chunk)
+          if (legacyFile && !writtenFiles.includes(legacyFile)) {
+            writtenFiles.push(legacyFile)
+          }
+          scheduleFlush()
+          break
       }
     }
 
@@ -1336,15 +1753,30 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         return
       }
 
-      if (fullContent) {
+      if (devServerUrl) {
         finishGeneration()
+        return
+      }
+      if (aiText || writtenFiles.length > 0) {
+        const msg = messages.value[aiMessageIndex]
+        if (msg) {
+          msg.content = [
+            buildGenerationStatusMessage(aiText, pendingFile, writtenFiles, devServerUrl, generatingMessageTick),
+            '连接正在等待后端继续返回预览地址，请不要刷新页面。',
+          ].join('\n\n')
+          msg.loading = true
+        }
         return
       }
 
       eventSource?.close()
+      stopStatusTicker()
       handleError(new Error('SSE连接错误'), aiMessageIndex)
     }
   } catch (error) {
+    if (statusTimer !== undefined) {
+      window.clearInterval(statusTimer)
+    }
     if (renderTimer !== undefined) {
       window.clearTimeout(renderTimer)
     }
@@ -1375,7 +1807,29 @@ const updatePreview = () => {
   }
   const codeGenType = selectedVersionRecord.value?.codeGenType || appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
   previewUrl.value = getGeneratedPreviewUrl(appId.value, version, codeGenType)
+  usingDevServerPreview.value = false
   previewReady.value = true
+}
+
+const loadPreview = () => {
+  if (previewLoading.value) return
+  if (!previewUrl.value) {
+    updatePreview()
+  }
+  if (!previewUrl.value) {
+    message.warning('暂无可加载的预览地址')
+    return
+  }
+  previewLoading.value = true
+  previewReady.value = false
+  previewFrameKey.value += 1
+  if (previewLoadTimer !== undefined) {
+    window.clearTimeout(previewLoadTimer)
+  }
+  previewLoadTimer = window.setTimeout(() => {
+    previewLoading.value = false
+    previewLoadTimer = undefined
+  }, 12000)
 }
 
 // 滚动到底部
@@ -1443,7 +1897,7 @@ const deployApp = async () => {
   deploying.value = true
   try {
     const res = await deployAppApi({
-      appId: appId.value as unknown as number,
+      appId: appId.value,
       version: selectedVersion.value,
     })
 
@@ -1480,6 +1934,11 @@ const openDeployedSite = () => {
 // iframe加载完成
 const onIframeLoad = () => {
   previewReady.value = true
+  previewLoading.value = false
+  if (previewLoadTimer !== undefined) {
+    window.clearTimeout(previewLoadTimer)
+    previewLoadTimer = undefined
+  }
   const iframe = document.querySelector('.preview-iframe') as HTMLIFrameElement
   if (iframe) {
     visualEditor.init(iframe)
@@ -1558,6 +2017,9 @@ onMounted(() => {
 
 // 清理资源
 onUnmounted(() => {
+  if (previewLoadTimer !== undefined) {
+    window.clearTimeout(previewLoadTimer)
+  }
   // EventSource 会在组件卸载时自动清理
 })
 </script>
@@ -1720,6 +2182,44 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+.chat-overview {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(34, 197, 94, 0.06)),
+    var(--surface);
+}
+
+.chat-overview-item {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.chat-overview-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.chat-overview-item strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .messages-container {
   flex: 1;
   padding: 16px;
@@ -1759,6 +2259,13 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
+.message-meta {
+  margin-bottom: 6px;
+  color: rgba(100, 116, 139, 0.86);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
 .user-message .message-content {
   background: var(--gradient-brand);
   color: #fff;
@@ -1773,6 +2280,91 @@ onUnmounted(() => {
   border-bottom-left-radius: 6px;
   padding: 10px 14px;
   box-shadow: var(--shadow-xs);
+}
+
+.user-message .message-meta {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.generation-activity {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(14, 165, 233, 0.18);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(20, 184, 166, 0.06));
+}
+
+.generation-activity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.generation-activity-header span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.generation-activity-header strong {
+  flex-shrink: 0;
+  color: var(--brand-600);
+  font-size: 12px;
+}
+
+.generation-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.generation-step {
+  min-width: 0;
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.generation-step.done {
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+}
+
+.generation-step.active {
+  background: rgba(14, 165, 233, 0.16);
+  color: var(--brand-600);
+  font-weight: 700;
+}
+
+.generation-files {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.generation-files span {
+  max-width: 160px;
+  overflow: hidden;
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text-2);
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .message-avatar {
@@ -2351,6 +2943,20 @@ onUnmounted(() => {
   border: none;
 }
 
+.preview-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text-2);
+  font-size: 13px;
+  backdrop-filter: blur(3px);
+}
+
 /* 选中元素提示 */
 .selected-element-alert {
   margin: 0 16px 8px;
@@ -2437,6 +3043,14 @@ onUnmounted(() => {
 
   .message-content {
     max-width: 88%;
+  }
+
+  .chat-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .generation-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .source-modal-toolbar {

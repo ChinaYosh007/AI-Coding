@@ -111,7 +111,7 @@ export async function deployApp(body: API.AppDeployRequest, options?: { [key: st
 }
 
 /** 获取某个应用的对话历史统计信息 GET /app/{appId}/stats */
-export async function getAppChatHistoryStats(appId: number, options?: { [key: string]: any }) {
+export async function getAppChatHistoryStats(appId: string, options?: { [key: string]: any }) {
   return request<API.BaseResponseLong>(`/app/${appId}/stats`, {
     method: 'GET',
     ...(options || {}),
@@ -120,7 +120,7 @@ export async function getAppChatHistoryStats(appId: number, options?: { [key: st
 
 /** 导出某个应用的对话历史为 Markdown GET /app/{appId}/export/markdown */
 export async function exportAppChatHistoryAsMarkdown(
-  appId: number,
+  appId: string,
   options?: { [key: string]: any }
 ) {
   return request<API.BaseResponseString>(`/app/${appId}/export/markdown`, {
@@ -130,7 +130,7 @@ export async function exportAppChatHistoryAsMarkdown(
 }
 
 /** 获取某个应用的智能记忆 GET /app/{appId}/memory */
-export async function getAppChatHistoryMemory(appId: number, options?: { [key: string]: any }) {
+export async function getAppChatHistoryMemory(appId: string, options?: { [key: string]: any }) {
   return request<API.BaseResponseString>(`/app/${appId}/memory`, {
     method: 'GET',
     ...(options || {}),
@@ -139,7 +139,7 @@ export async function getAppChatHistoryMemory(appId: number, options?: { [key: s
 
 /** 总结某个应用的智能记忆 POST /app/{appId}/memory/summarize */
 export async function summarizeAppChatHistoryMemory(
-  appId: number,
+  appId: string,
   options?: { [key: string]: any }
 ) {
   return request<API.BaseResponseVoid>(`/app/${appId}/memory/summarize`, {
@@ -149,7 +149,7 @@ export async function summarizeAppChatHistoryMemory(
 }
 
 /** 查询某个应用的协作成员 GET /app/{appId}/collaboration/members */
-export async function getAppCollaborationMembers(appId: number, options?: { [key: string]: any }) {
+export async function getAppCollaborationMembers(appId: string, options?: { [key: string]: any }) {
   return request<API.BaseResponseListAppCollaborationMemberVO>(
     `/app/${appId}/collaboration/members`,
     {
@@ -161,7 +161,7 @@ export async function getAppCollaborationMembers(appId: number, options?: { [key
 
 /** 邀请应用协作者 POST /app/{appId}/collaboration/invite */
 export async function inviteAppCollaborator(
-  appId: number,
+  appId: string,
   body: API.AppCollaborationInviteRequest,
   options?: { [key: string]: any }
 ) {
