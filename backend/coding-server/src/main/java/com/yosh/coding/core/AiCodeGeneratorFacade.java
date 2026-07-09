@@ -83,7 +83,7 @@ public class AiCodeGeneratorFacade {
         redisChatMemoryStore.deleteMessages(appId);
         MessageWindowChatMemory messageWindowChatMemory = MessageWindowChatMemory
                 .builder()
-                .id(buildCacheKey(appId, version, type))
+                .id(appId)
                 .maxMessages(30)
                 .chatMemoryStore(redisChatMemoryStore)
                 .build();
@@ -302,9 +302,10 @@ public class AiCodeGeneratorFacade {
 
 
     public void clearAppMemory(Long appId, Long version,CodeGenTypeEnum type) {
-        String key = buildCacheKey(appId, version, type);
-        redisChatMemoryStore.deleteMessages(key);
+
+        redisChatMemoryStore.deleteMessages(appId);
         //清理 caffeine
+        String key = buildCacheKey(appId, version, type);
         serviceCache.invalidate(key);
     }
 }
