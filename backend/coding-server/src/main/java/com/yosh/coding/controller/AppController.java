@@ -73,8 +73,9 @@ public class AppController {
         App app = new App();
         BeanUtil.copyProperties(appAddRequest, app);
         app.setUserId(loginUser.getId());
-        // 让AI根据内容生成合适的标题
-        app.setAppName(appService.generateAppName(initPrompt));
+        // 让AI根据内容生成合适的标题，截断防止超长
+        String appName = appService.generateAppName(initPrompt);
+        app.setAppName(appName.length() > 32 ? appName.substring(0, 32) : appName);
 
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(appAddRequest.getCodeGenType());
         ThrowUtils.throwIf(codeGenTypeEnum == null, ErrorCode.PARAMS_ERROR, "代码生成类型不支持");
@@ -373,8 +374,8 @@ public class AppController {
      * @return
      */
     @PostMapping("/{appId}/memory/summarize")
-    public BaseResponse summarizeAppChatHistoryMemory(@PathVariable Long appId) {
-        appService.summarizeAppChatHistoryMemory(appId);
+    public BaseResponse summarizeAppChatHistoryMemory(@PathVariable Long appId, @RequestParam Long version) {
+        appService.summarizeAppChatHistoryMemory(appId, version);
         return ResultUtils.success();
     }
     @GetMapping("/{appId}/memory")
