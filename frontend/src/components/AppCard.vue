@@ -54,7 +54,7 @@ interface Props {
 }
 
 interface Emits {
-  (e: 'view-chat', appId: string | undefined): void
+  (e: 'view-chat', appId: string | number | undefined): void
   (e: 'view-work', app: API.AppVO): void
 }
 

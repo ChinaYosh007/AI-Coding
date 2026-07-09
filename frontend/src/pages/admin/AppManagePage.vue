@@ -257,7 +257,7 @@ const toggleFeatured = async (app: API.AppVO) => {
 }
 
 // 删除应用
-const deleteApp = async (id: string | undefined) => {
+const deleteApp = async (id: number | undefined) => {
   if (!id) return
 
   try {
