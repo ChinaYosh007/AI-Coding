@@ -55,223 +55,215 @@
     </div>
 
     <!-- 主要内容区域 -->
-    <div class="main-content">
-      <!-- 左侧对话区域 -->
-      <div class="chat-section">
-        <div class="panel-header">
-          <span class="panel-title">
-            <MessageOutlined />
-            对话记录
-          </span>
-          <div class="chat-tools">
-            <a-tooltip title="应用对话轮次">
-              <span class="chat-stat-pill">
-                <BarChartOutlined />
-                {{ displayDialogRounds }} 轮
-              </span>
-            </a-tooltip>
-            <a-button type="text" size="small" @click="exportChatMarkdown" :loading="exportingChat">
-              <template #icon>
-                <FileTextOutlined />
-              </template>
-              导出
-            </a-button>
-            <a-button type="text" size="small" @click="openMemoryModal" :loading="memoryLoading">
-              <template #icon>
-                <DatabaseOutlined />
-              </template>
-              记忆
-            </a-button>
-            <a-button type="text" size="small" @click="openCollaborationModal" :loading="collaborationLoading">
-              <template #icon>
-                <TeamOutlined />
-              </template>
-              协作
-            </a-button>
-          </div>
-        </div>
-        <!-- 消息区域 -->
-        <div class="chat-overview">
-          <div v-for="item in chatOverviewItems" :key="item.label" class="chat-overview-item">
-            <span class="chat-overview-label">{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </div>
-        </div>
-        <div class="messages-container" ref="messagesContainer">
-          <!-- 加载更多按钮 -->
-          <div v-if="hasMoreHistory" class="load-more-container">
-            <a-button type="link" @click="loadMoreHistory" :loading="loadingHistory" size="small">
-              加载更多历史消息
-            </a-button>
-          </div>
-          <div v-for="(message, index) in messages" :key="index" class="message-item">
-            <div v-if="message.type === 'user'" class="user-message">
-              <div class="message-content">
-                <div class="message-meta">你 · {{ formatMessageTime(message.createTime) }}</div>
-                {{ message.content }}
+    <div class="main-content" :class="{ generating: isGenerating }">
+      <!-- 左侧面板：对话 + 输入（始终可见） -->
+      <div class="step-panel">
+        <div class="chat-mini">
+          <!-- 生成中：紧凑进度条 -->
+          <div v-if="isGenerating" class="gen-progress-bar">
+            <template v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)" :key="'stream-bar'">
+              <div v-if="streamMsg.streamInfo" class="gen-bar-info">
+                <a-spin size="small" />
+                <span class="gen-bar-action">{{ streamMsg.streamInfo.currentAction }}</span>
+                <strong class="gen-bar-size">{{ formatGeneratedSize(streamMsg.streamInfo.totalChars) }}</strong>
               </div>
-              <div class="message-avatar">
-                <a-avatar :src="loginUserStore.loginUser.userAvatar" />
+              <div v-else class="gen-bar-info">
+                <a-spin size="small" />
+                <span>正在连接生成服务…</span>
+              </div>
+            </template>
+          </div>
+
+          <div class="panel-header">
+            <span class="panel-title">
+              <MessageOutlined />
+              对话记录
+            </span>
+            <div class="chat-tools">
+              <a-tooltip title="应用对话轮次">
+                <span class="chat-stat-pill">
+                  <BarChartOutlined />
+                  {{ displayDialogRounds }} 轮
+                </span>
+              </a-tooltip>
+              <a-button type="text" size="small" @click="exportChatMarkdown" :loading="exportingChat">
+                <template #icon>
+                  <FileTextOutlined />
+                </template>
+                导出
+              </a-button>
+              <a-button type="text" size="small" @click="openMemoryModal" :loading="memoryLoading">
+                <template #icon>
+                  <DatabaseOutlined />
+                </template>
+                记忆
+              </a-button>
+              <a-button type="text" size="small" @click="openCollaborationModal" :loading="collaborationLoading">
+                <template #icon>
+                  <TeamOutlined />
+                </template>
+                协作
+              </a-button>
+            </div>
+          </div>
+          <div class="chat-overview">
+            <div v-for="item in chatOverviewItems" :key="item.label" class="chat-overview-item">
+              <span class="chat-overview-label">{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </div>
+          <div class="messages-container" ref="messagesContainer">
+            <div v-if="hasMoreHistory" class="load-more-container">
+              <a-button type="link" @click="loadMoreHistory" :loading="loadingHistory" size="small">
+                加载更多历史消息
+              </a-button>
+            </div>
+            <div v-for="(message, index) in messages.slice(-5)" :key="index" class="message-item">
+              <div v-if="message.type === 'user'" class="user-message">
+                <div class="message-content">
+                  <div class="message-meta">你 · {{ formatMessageTime(message.createTime) }}</div>
+                  {{ message.content }}
+                </div>
+                <div class="message-avatar">
+                  <a-avatar :src="loginUserStore.loginUser.userAvatar" />
+                </div>
+              </div>
+              <div v-else class="ai-message">
+                <div class="message-avatar">
+                  <a-avatar :src="aiAvatar" />
+                </div>
+                <div class="message-content">
+                  <div class="message-meta">AI 助手 · {{ formatMessageTime(message.createTime) }}</div>
+                  <MarkdownRenderer v-if="message.content" :content="message.content" />
+                </div>
               </div>
             </div>
-            <div v-else class="ai-message">
-              <div class="message-avatar">
-                <a-avatar :src="aiAvatar" />
-              </div>
-              <div class="message-content">
-                <div class="message-meta">AI 助手 · {{ formatMessageTime(message.createTime) }}</div>
-                <MarkdownRenderer v-if="message.content" :content="message.content" />
-                <div v-if="message.streamInfo" class="generation-activity">
-                  <div class="generation-activity-header">
-                    <span>{{ message.streamInfo.currentAction }}</span>
-                    <strong>{{ formatGeneratedSize(message.streamInfo.totalChars) }}</strong>
-                  </div>
-                  <div class="generation-steps">
-                    <span
-                        v-for="(step, stepIndex) in generationSteps"
-                        :key="step"
-                        class="generation-step"
-                        :class="{
-                          done: stepIndex < message.streamInfo.stage,
-                          active: stepIndex === message.streamInfo.stage,
-                        }"
-                    >
-                      {{ step }}
-                    </span>
-                  </div>
-                  <div v-if="message.streamInfo.fileNames.length" class="generation-files">
-                    <span
-                        v-for="fileName in message.streamInfo.fileNames"
-                        :key="fileName"
-                        :title="fileName"
-                    >
-                      {{ fileName }}
-                    </span>
-                  </div>
-                </div>
-                <div v-if="message.loading" class="loading-indicator">
-                  <span class="typing-dots">
-                    <i></i><i></i><i></i>
+          </div>
+
+          <!-- 选中元素信息展示 -->
+          <a-alert
+              v-if="selectedElementInfo"
+              class="selected-element-alert"
+              type="info"
+              closable
+              @close="clearSelectedElement"
+          >
+            <template #message>
+              <div class="selected-element-info">
+                <div class="element-header">
+                  <span class="element-tag">
+                    选中元素：{{ selectedElementInfo.tagName.toLowerCase() }}
                   </span>
-                  <span>{{ message.content || 'AI 正在思考…' }}</span>
+                  <span v-if="selectedElementInfo.id" class="element-id">
+                    #{{ selectedElementInfo.id }}
+                  </span>
+                  <span v-if="selectedElementInfo.className" class="element-class">
+                    .{{ selectedElementInfo.className.split(' ').join('.') }}
+                  </span>
+                </div>
+                <div class="element-details">
+                  <div v-if="selectedElementInfo.textContent" class="element-item">
+                    内容: {{ selectedElementInfo.textContent.substring(0, 50) }}
+                    {{ selectedElementInfo.textContent.length > 50 ? '...' : '' }}
+                  </div>
+                  <div v-if="selectedElementInfo.pagePath" class="element-item">
+                    页面路径: {{ selectedElementInfo.pagePath }}
+                  </div>
+                  <div class="element-item">
+                    选择器:
+                    <code class="element-selector-code">{{ selectedElementInfo.selector }}</code>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
+            </template>
+          </a-alert>
 
-        <!-- 选中元素信息展示 -->
-        <a-alert
-            v-if="selectedElementInfo"
-            class="selected-element-alert"
-            type="info"
-            closable
-            @close="clearSelectedElement"
-        >
-          <template #message>
-            <div class="selected-element-info">
-              <div class="element-header">
-                <span class="element-tag">
-                  选中元素：{{ selectedElementInfo.tagName.toLowerCase() }}
-                </span>
-                <span v-if="selectedElementInfo.id" class="element-id">
-                  #{{ selectedElementInfo.id }}
-                </span>
-                <span v-if="selectedElementInfo.className" class="element-class">
-                  .{{ selectedElementInfo.className.split(' ').join('.') }}
-                </span>
-              </div>
-              <div class="element-details">
-                <div v-if="selectedElementInfo.textContent" class="element-item">
-                  内容: {{ selectedElementInfo.textContent.substring(0, 50) }}
-                  {{ selectedElementInfo.textContent.length > 50 ? '...' : '' }}
-                </div>
-                <div v-if="selectedElementInfo.pagePath" class="element-item">
-                  页面路径: {{ selectedElementInfo.pagePath }}
-                </div>
-                <div class="element-item">
-                  选择器:
-                  <code class="element-selector-code">{{ selectedElementInfo.selector }}</code>
-                </div>
-              </div>
-            </div>
-          </template>
-        </a-alert>
-
-        <!-- 用户消息输入框 -->
-        <div class="input-container">
-          <div class="input-wrapper">
-            <a-tooltip v-if="!isOwner" title="无法在别人的作品下对话哦~" placement="top">
+          <!-- 用户消息输入框 -->
+          <div class="input-container">
+            <div class="input-wrapper">
+              <a-tooltip v-if="!isOwner" title="无法在别人的作品下对话哦~" placement="top">
+                <a-textarea
+                    v-model:value="userInput"
+                    :placeholder="getInputPlaceholder()"
+                    :rows="4"
+                    :maxlength="1000"
+                    @keydown.enter.prevent="sendMessage"
+                    :disabled="!isOwner"
+                />
+              </a-tooltip>
               <a-textarea
+                  v-else
                   v-model:value="userInput"
                   :placeholder="getInputPlaceholder()"
                   :rows="4"
                   :maxlength="1000"
                   @keydown.enter.prevent="sendMessage"
-                  :disabled="!isOwner"
               />
-            </a-tooltip>
-            <a-textarea
-                v-else
-                v-model:value="userInput"
-                :placeholder="getInputPlaceholder()"
-                :rows="4"
-                :maxlength="1000"
-                @keydown.enter.prevent="sendMessage"
-            />
-            <div class="input-actions">
-              <button
-                  class="send-btn"
-                  :class="{ 'is-loading': isGenerating }"
-                  :disabled="isGenerating || !isOwner"
-                  @click="sendMessage"
-              >
-                <a-spin v-if="isGenerating" size="small" class="send-btn-spin" />
-                <SendOutlined v-else />
-              </button>
+              <div class="input-actions">
+                <button
+                    class="send-btn"
+                    :class="{ 'is-loading': isGenerating }"
+                    :disabled="isGenerating || !isOwner"
+                    @click="sendMessage"
+                >
+                  <a-spin v-if="isGenerating" size="small" class="send-btn-spin" />
+                  <SendOutlined v-else />
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
-      <!-- 代码版本控制区域 -->
-      <div class="version-section">
-        <div class="panel-header">
-          <span class="panel-title">
-            <HistoryOutlined />
-            代码版本
-          </span>
-          <a-button type="text" size="small" @click="loadAppVersions" :loading="loadingVersions">
-            <template #icon>
-              <ReloadOutlined />
-            </template>
-          </a-button>
-        </div>
-        <div class="version-content">
-          <a-empty v-if="!loadingVersions && appVersions.length === 0" description="暂无代码版本" />
-          <a-spin v-else-if="loadingVersions && appVersions.length === 0" />
-          <div v-else class="version-list">
-            <button
-                v-for="versionItem in appVersions"
-                :key="versionItem.id || versionItem.version"
-                type="button"
-                class="version-item"
-                :class="{ active: selectedVersion === versionItem.version }"
-                @click="selectVersion(versionItem)"
-            >
-              <div class="version-row">
-                <span class="version-name">V{{ versionItem.version }}</span>
-                <a-tag v-if="versionItem.version === latestVersion" color="green">最新</a-tag>
-              </div>
-              <div class="version-meta">
-                {{ formatCodeGenType(versionItem.codeGenType || appInfo?.codeGenType) }}
-              </div>
-              <div class="version-time">{{ formatTime(versionItem.createTime) || '暂无时间' }}</div>
-              <div class="version-message">
-                {{ truncateText(versionItem.userMessage, 80) || '暂无生成提示' }}
-              </div>
-            </button>
+      <!-- 中间面板：仅生成中显示文件树+代码查看 -->
+      <div v-show="isGenerating" class="code-panel">
+        <!-- 生成中：文件树 + 代码查看 -->
+        <div v-if="isGenerating" class="file-explorer">
+          <div class="panel-header">
+            <span class="panel-title">
+              <CodeOutlined />
+              实时文件
+            </span>
+          </div>
+          <template v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)" :key="'stream-mid'">
+            <div class="file-explorer-body">
+              <aside class="file-tree">
+                <div v-if="liveFiles.length === 0" class="file-tree-empty">
+                  <a-spin size="small" />
+                  <span>等待文件写入…</span>
+                </div>
+                <button
+                    v-for="fileName in liveFiles"
+                    :key="fileName"
+                    class="file-tree-item"
+                    :class="{ active: activeLiveFile === fileName }"
+                    type="button"
+                    @click="activeLiveFile = fileName"
+                >
+                  <FileTextOutlined class="file-tree-icon" />
+                  <span class="file-tree-name" :title="fileName">{{ fileName }}</span>
+                </button>
+              </aside>
+              <section class="code-viewer">
+                <div class="code-viewer-header">
+                  <span class="code-viewer-file">{{ currentLiveFile?.name || '选择文件查看代码' }}</span>
+                </div>
+                <div v-if="!currentLiveFile" class="code-viewer-placeholder">
+                  <p>AI 正在生成代码，请稍候…</p>
+                </div>
+                <div v-else-if="!currentLiveFile.content" class="code-viewer-generating">
+                  <a-spin size="small" />
+                  <p>代码生成中…</p>
+                </div>
+                <pre v-else class="code-viewer-content"><code class="hljs" v-html="highlightedCode"></code></pre>
+              </section>
+            </div>
+          </template>
+          <div v-if="messages.filter(m => m.streamInfo).length === 0" class="file-explorer-empty">
+            <a-spin size="small" />
+            <span>正在连接生成服务…</span>
           </div>
         </div>
+
       </div>
       <!-- 右侧网页展示区域 -->
       <div class="preview-section">
@@ -280,6 +272,18 @@
             <span></span><span></span><span></span>
           </div>
           <h3 class="preview-title">实时预览</h3>
+          <a-select
+              v-if="appVersions.length > 0"
+              v-model:value="selectedVersion"
+              size="small"
+              class="version-select"
+              :loading="loadingVersions"
+              @change="onVersionSelectChange"
+          >
+            <a-select-option v-for="v in appVersions" :key="v.version" :value="v.version">
+              V{{ v.version }}{{ v.version === latestVersion ? ' · 最新' : '' }}
+            </a-select-option>
+          </a-select>
           <div class="preview-actions">
             <a-button
                 v-if="previewUrl || selectedVersion || latestVersion"
@@ -523,9 +527,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, onUnmounted, computed } from 'vue'
+import { ref, onMounted, nextTick, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import hljs from 'highlight.js/lib/common'
+import 'highlight.js/styles/github.css'
 import { useLoginUserStore } from '@/stores/loginUser'
 import {
   getAppVoById,
@@ -665,6 +671,19 @@ const sourceLoading = ref(false)
 const sourceFiles = ref<SourceFile[]>([])
 const activeSourceFile = ref('')
 
+// 实时代码展示（生成中）
+const liveCode = ref('')
+const liveFiles = ref<string[]>([])
+const activeLiveFile = ref('')
+// Vue 模式：从 tool_executed 消息提取的 文件路径 → 文件内容 映射
+const fileContentMap = ref<Map<string, string>>(new Map())
+// 当前生成中的版本号（用于从后端 API 拉取已写入的文件内容）
+const generatingVersion = ref<number | undefined>(undefined)
+// 是否为 Vue 生成模式（有工具调用写文件），用于区分 HTML 模式
+const isVueGenMode = ref(false)
+// AI 实时输出文本（显示在左侧面板）
+const liveAiText = ref('')
+
 // 智能记忆相关
 const memoryModalVisible = ref(false)
 const memoryLoading = ref(false)
@@ -718,6 +737,60 @@ const selectedVersionRecord = computed(() => {
 
 const currentSourceFile = computed(() => {
   return sourceFiles.value.find((file) => file.name === activeSourceFile.value)
+})
+
+// 实时代码：优先从 fileContentMap 取内容，HTML 模式回退到 liveCode
+const currentLiveFile = computed(() => {
+  const name = activeLiveFile.value || liveFiles.value[0]
+  if (!name) return null
+  // Vue 模式：从 fileContentMap 取实际文件内容
+  const mappedContent = fileContentMap.value.get(name)
+  if (mappedContent) {
+    return { name, content: mappedContent }
+  }
+  // HTML/多文件模式：aiText 就是代码
+  if (!isVueGenMode.value && liveCode.value) {
+    return { name, content: liveCode.value }
+  }
+  // Vue 模式但该文件内容尚未加载：返回空，模板显示"正在生成..."
+  return { name, content: '' }
+})
+
+// 根据文件扩展名推断 highlight.js 语言
+const getLanguageFromFileName = (fileName: string): string => {
+  const ext = fileName.split('.').pop()?.toLowerCase() || ''
+  const langMap: Record<string, string> = {
+    html: 'html', htm: 'html',
+    css: 'css', scss: 'scss', sass: 'sass', less: 'less',
+    js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
+    ts: 'typescript', tsx: 'typescript',
+    vue: 'xml', json: 'json', xml: 'xml',
+    md: 'markdown', yml: 'yaml', yaml: 'yaml',
+    sh: 'bash', bash: 'bash',
+  }
+  return langMap[ext] || ''
+}
+
+// 语法高亮后的 HTML
+const highlightedCode = computed(() => {
+  const content = currentLiveFile.value?.content
+  if (!content) return ''
+  const lang = getLanguageFromFileName(currentLiveFile.value!.name)
+  try {
+    if (lang && hljs.getLanguage(lang)) {
+      return hljs.highlight(content, { language: lang }).value
+    }
+    return hljs.highlightAuto(content).value
+  } catch {
+    return content.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+})
+
+// 生成中切换文件时，拉取该文件的实际内容
+watch(activeLiveFile, (newFile) => {
+  if (newFile && isVueGenMode.value && generatingVersion.value && !fileContentMap.value.has(newFile)) {
+    fetchLiveFileContent(newFile)
+  }
 })
 
 // 应用详情相关
@@ -814,6 +887,11 @@ const selectVersion = (versionItem: API.AppVersion) => {
   updatePreview()
 }
 
+const onVersionSelectChange = (val: number) => {
+  const item = appVersions.value.find((v) => v.version === val)
+  if (item) selectVersion(item)
+}
+
 const getSourceStaticBaseUrl = () => {
   if (import.meta.env.DEV && API_BASE_URL === '/api') {
     return `${window.location.protocol}//${window.location.hostname}:8080/api/static`
@@ -827,6 +905,34 @@ const encodeSourcePath = (filePath: string) => {
       .filter(Boolean)
       .map((pathPart) => encodeURIComponent(pathPart))
       .join('/')
+}
+
+// 生成中：从后端 API 拉取已写入磁盘的文件内容
+const fetchLiveFileContent = async (filePath: string, retryCount = 0) => {
+  if (!appId.value || !generatingVersion.value) return
+  if (fileContentMap.value.has(filePath)) return // 已缓存
+  try {
+    const sourceStaticBaseUrl = getSourceStaticBaseUrl()
+    const cacheKey = Date.now()
+    const response = await request.get<string>(
+      `${sourceStaticBaseUrl}/preview/${appId.value}/${generatingVersion.value}/${encodeSourcePath(filePath)}?t=${cacheKey}`,
+      {
+        responseType: 'text',
+        timeout: 10000,
+        transformResponse: [(data) => data],
+        validateStatus: (status) => status < 500,
+      },
+    )
+    if (response.status === 200 && response.data) {
+      fileContentMap.value.set(filePath, response.data)
+      fileContentMap.value = new Map(fileContentMap.value) // 触发响应式
+    } else if (response.status === 404 && retryCount < 3) {
+      // 文件可能还没写入磁盘，延迟重试
+      setTimeout(() => fetchLiveFileContent(filePath, retryCount + 1), 800)
+    }
+  } catch {
+    // 静默失败，不影响生成流程
+  }
 }
 
 const loadSourceFiles = async () => {
@@ -1111,6 +1217,20 @@ const formatMessageTime = (time?: string) => {
   if (!time) return '刚刚'
   const formatted = formatTime(time)
   return formatted || '刚刚'
+}
+
+// 从 AI 文本流中提取指定代码块（html/css/js）
+const extractCodeBlock = (text: string, fileName: string): string => {
+  if (!text) return ''
+  const lang = fileName.endsWith('.css') ? 'css'
+    : fileName.endsWith('.js') ? 'javascript'
+    : 'html'
+  const regex = new RegExp('```' + lang + '\\s*\\n([\\s\\S]*?)```', 'i')
+  const match = text.match(regex)
+  if (match) return match[1].trim()
+  // 如果是 html 且没找到代码块，直接返回原文（可能就是 HTML）
+  if (lang === 'html' && text.includes('<') && text.includes('>')) return text.trim()
+  return ''
 }
 
 const formatGeneratedSize = (totalChars: number) => {
@@ -1428,8 +1548,22 @@ const sendMessage = async () => {
   await generateCode(message, aiMessageIndex)
 }
 
+// 从工具参数中提取文件路径和内容
+const extractFileFromArgs = (args: unknown): { filePath: string; content: string } => {
+  if (!args) return { filePath: '', content: '' }
+  try {
+    const obj = typeof args === 'string' ? JSON.parse(args) : args
+    return {
+      filePath: obj?.relativePath || obj?.relativeFilePath || '',
+      content: typeof obj?.content === 'string' ? obj.content : '',
+    }
+  } catch {
+    return { filePath: '', content: '' }
+  }
+}
+
 // 解析 SSE 消息，支持结构化 JSON（type 字段分发）和纯文本向后兼容
-const parseSseMessage = (raw: string): { type: string; data: string; filePath?: string; url?: string } => {
+const parseSseMessage = (raw: string): { type: string; data: string; filePath?: string; fileContent?: string; url?: string } => {
   const text = raw?.trim()
   if (!text) return { type: 'unknown', data: '' }
 
@@ -1449,19 +1583,15 @@ const parseSseMessage = (raw: string): { type: string; data: string; filePath?: 
           case 'ai_response':
             return { type: 'ai_response', data: parsed.data ?? '' }
 
-          case 'tool_request':
-            return {
-              type: 'tool_request',
-              data: text,
-              filePath: extractFilePathFromArgs(parsed.arguments),
-            }
+          case 'tool_request': {
+            const { filePath, content } = extractFileFromArgs(parsed.arguments)
+            return { type: 'tool_request', data: text, filePath, fileContent: content }
+          }
 
-          case 'tool_executed':
-            return {
-              type: 'tool_executed',
-              data: text,
-              filePath: extractFilePathFromArgs(parsed.arguments),
-            }
+          case 'tool_executed': {
+            const { filePath, content } = extractFileFromArgs(parsed.arguments)
+            return { type: 'tool_executed', data: text, filePath, fileContent: content }
+          }
 
           case 'dev_server':
             return { type: 'dev_server', data: '', url: parsed.url }
@@ -1481,17 +1611,6 @@ const parseSseMessage = (raw: string): { type: string; data: string; filePath?: 
   return { type: 'text', data: text }
 }
 
-// 从工具参数中提取文件路径
-const extractFilePathFromArgs = (args: unknown): string => {
-  if (!args) return ''
-  try {
-    const obj = typeof args === 'string' ? JSON.parse(args) : args
-    return obj?.relativePath || obj?.relativeFilePath || ''
-  } catch {
-    return ''
-  }
-}
-
 // 生成代码 - 使用 EventSource 处理流式响应
 const generateCode = async (userMessage: string, aiMessageIndex: number) => {
   let eventSource: EventSource | null = null
@@ -1505,6 +1624,27 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
   const writtenFiles: string[] = []
   let pendingFile = ''
   let devServerUrl = ''
+
+  // 重置实时代码展示
+  liveCode.value = ''
+  liveFiles.value = []
+  activeLiveFile.value = ''
+  fileContentMap.value = new Map()
+  generatingVersion.value = undefined
+  isVueGenMode.value = false
+  liveAiText.value = ''
+
+  // 计算预期的新版本号：后端创建版本 = 当前最新版本 + 1
+  // 后端在收到 SSE 请求时才创建版本，这里提前算好避免时序问题
+  const preGenVersion = appVersions.value[0]?.version
+  if (preGenVersion) {
+    generatingVersion.value = preGenVersion + 1
+  } else {
+    generatingVersion.value = 1
+  }
+
+  // 标记是否已刷新过版本列表（收到第一条 SSE 消息后刷新一次以获取准确版本号）
+  let versionListRefreshed = false
 
   try {
     const baseURL = request.defaults.baseURL || API_BASE_URL
@@ -1534,6 +1674,30 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
             : '正在生成代码',
         fileNames: writtenFiles.slice(-4),
         updatedAt: new Date().toISOString(),
+      }
+
+      // 实时代码：更新 liveCode 和 liveFiles 供中间面板显示
+      liveAiText.value = aiText
+      if (writtenFiles.length > 0) {
+        // Vue 模式：文件列表来自 tool_executed，实际内容在 fileContentMap 中
+        isVueGenMode.value = true
+        liveFiles.value = writtenFiles
+        // liveCode 仅作为 AI 状态文本（非文件内容），actual content 由 currentLiveFile 从 fileContentMap 获取
+        liveCode.value = aiText
+      } else if (aiText.length > 100) {
+        // HTML/多文件模式：AI 文本流就是代码，创建虚拟文件
+        liveCode.value = aiText
+        const codeGenType = appInfo.value?.codeGenType
+        if (codeGenType === 'multi_file') {
+          liveFiles.value = ['index.html', 'style.css', 'script.js'].filter(f => extractCodeBlock(aiText, f))
+          if (liveFiles.value.length === 0) liveFiles.value = ['index.html']
+        } else {
+          liveFiles.value = ['index.html']
+        }
+        // 按 activeLiveFile 提取对应代码块
+        if (activeLiveFile.value && liveFiles.value.includes(activeLiveFile.value)) {
+          liveCode.value = extractCodeBlock(aiText, activeLiveFile.value) || aiText
+        }
       }
 
       msg.content = buildGenerationStatusMessage(
@@ -1594,6 +1758,8 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       }
 
       isGenerating.value = false
+      isVueGenMode.value = false
+      generatingVersion.value = undefined
       eventSource?.close()
 
       // 刷新应用信息和版本列表
@@ -1622,6 +1788,8 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         renderTimer = undefined
       }
       isGenerating.value = false
+      isVueGenMode.value = false
+      generatingVersion.value = undefined
       eventSource?.close()
       messages.value[aiMessageIndex].content = `❌ ${errorMessage}`
       messages.value[aiMessageIndex].loading = false
@@ -1631,6 +1799,23 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
     // ===== SSE 消息处理 =====
     eventSource.onmessage = function (event) {
       if (streamCompleted) return
+
+      // 收到第一条消息后，后台刷新版本列表以获取准确版本号
+      if (!versionListRefreshed) {
+        versionListRefreshed = true
+        loadAppVersions().then(() => {
+          const actualVersion = appVersions.value[0]?.version
+          if (actualVersion && actualVersion !== generatingVersion.value) {
+            generatingVersion.value = actualVersion
+            // 版本号更新后，重新拉取已写入文件的内容
+            for (const f of writtenFiles) {
+              if (!fileContentMap.value.has(f)) {
+                fetchLiveFileContent(f)
+              }
+            }
+          }
+        }).catch(() => {})
+      }
 
       // 流结束标记
       if (event.data?.trim() === 'done' || event.data?.trim() === '[DONE]') {
@@ -1666,6 +1851,11 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
           if (parsed.filePath) {
             pendingFile = parsed.filePath
           }
+          // tool_request 也可能携带 content（取决于后端是否发送）
+          if (parsed.filePath && parsed.fileContent) {
+            fileContentMap.value.set(parsed.filePath, parsed.fileContent)
+            fileContentMap.value = new Map(fileContentMap.value)
+          }
           scheduleFlush()
           break
 
@@ -1678,6 +1868,14 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
             }
             if (pendingFile === filePath) {
               pendingFile = ''
+            }
+            // 提取文件内容存入 map
+            if (parsed.fileContent) {
+              fileContentMap.value.set(filePath, parsed.fileContent)
+              fileContentMap.value = new Map(fileContentMap.value)
+            } else if (!fileContentMap.value.has(filePath)) {
+              // 后端可能已将文件写入磁盘，从 API 拉取内容
+              fetchLiveFileContent(filePath)
             }
           }
           scheduleFlush()
@@ -1711,6 +1909,8 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
           const legacyFile = extractGeneratedFileName(chunk)
           if (legacyFile && !writtenFiles.includes(legacyFile)) {
             writtenFiles.push(legacyFile)
+            // Vue 模式：后端已将文件写入磁盘，从 API 拉取内容显示在代码面板
+            fetchLiveFileContent(legacyFile)
           }
           scheduleFlush()
           break
@@ -1774,6 +1974,8 @@ const handleError = (error: unknown, aiMessageIndex: number) => {
   messages.value[aiMessageIndex].loading = false
   message.error('生成失败，请重试')
   isGenerating.value = false
+  isVueGenMode.value = false
+  generatingVersion.value = undefined
 }
 
 // 更新预览
@@ -2105,9 +2307,31 @@ onUnmounted(() => {
 .main-content {
   flex: 1;
   display: flex;
-  gap: 16px;
+  gap: 12px;
   overflow: hidden;
   min-height: 0;
+}
+
+/* 生成中：隐藏预览面板，代码面板占更多空间 */
+.main-content.generating .step-panel {
+  flex: 1.1;
+}
+.main-content.generating .code-panel {
+  flex: 3;
+}
+.main-content.generating .preview-section {
+  display: none;
+}
+
+/* 非生成中：隐藏代码面板，预览占满剩余空间 */
+.main-content:not(.generating) .code-panel {
+  display: none;
+}
+.main-content:not(.generating) .step-panel {
+  flex: 3;
+}
+.main-content:not(.generating) .preview-section {
+  flex: 7;
 }
 
 /* ===== 左侧对话区域 ===== */
@@ -2800,7 +3024,7 @@ onUnmounted(() => {
 
 /* ===== 右侧预览区域 ===== */
 .preview-section {
-  flex: 3;
+  flex: 2.5;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -2818,6 +3042,11 @@ onUnmounted(() => {
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
+}
+
+.version-select {
+  width: 160px;
+  margin-left: auto;
 }
 
 /* 浏览器窗口三色圆点 */
@@ -3062,6 +3291,414 @@ onUnmounted(() => {
   }
 
   .source-file-item {
+    flex: 0 0 180px;
+    border-right: 1px solid rgba(148, 163, 184, 0.16);
+    border-bottom: 0;
+  }
+}
+
+/* ===== 左侧步骤面板 ===== */
+.step-panel {
+  flex: 1.1;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ===== 中间代码面板 ===== */
+.code-panel {
+  flex: 1.5;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ===== 步骤进度区域 ===== */
+.step-progress-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.step-current-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(20, 184, 166, 0.06));
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.step-current-action span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-current-action strong {
+  flex-shrink: 0;
+  color: var(--brand-600);
+  font-size: 12px;
+}
+
+.generation-steps-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+
+.generation-step-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border-left: 3px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0 6px 6px 0;
+  color: var(--text-3);
+  font-size: 13px;
+  transition:
+    border-color 0.2s,
+    background 0.2s,
+    color 0.2s;
+}
+
+.generation-step-item.done {
+  border-left-color: #22c55e;
+  color: #15803d;
+}
+
+.generation-step-item.active {
+  border-left-color: var(--brand-500);
+  background: rgba(14, 165, 233, 0.06);
+  color: var(--brand-600);
+  font-weight: 600;
+}
+
+.step-index {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-3);
+}
+
+.generation-step-item.done .step-index {
+  background: rgba(34, 197, 94, 0.16);
+  color: #15803d;
+}
+
+.generation-step-item.active .step-index {
+  background: rgba(14, 165, 233, 0.18);
+  color: var(--brand-600);
+}
+
+.step-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* 生成中：紧凑进度条 */
+.gen-progress-bar {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  background: linear-gradient(90deg, rgba(14, 165, 233, 0.06), rgba(14, 165, 233, 0.02));
+  border-bottom: 1px solid var(--border);
+}
+
+.gen-bar-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.gen-bar-action {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gen-bar-size {
+  flex-shrink: 0;
+  color: var(--brand-600);
+  font-size: 11px;
+}
+
+/* AI 实时输出日志 */
+.ai-output-log {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.ai-output-header {
+  padding: 8px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-3);
+  background: var(--surface-2);
+}
+
+.ai-output-text {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 10px 16px;
+  overflow-y: auto;
+  color: var(--text-2);
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ===== 精简对话容器 ===== */
+.chat-mini {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ===== 文件浏览器（生成中中间面板） ===== */
+.file-explorer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.file-explorer-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  overflow: hidden;
+  min-height: 0;
+}
+
+.file-tree {
+  min-width: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    color 0.2s;
+}
+
+.file-tree-item:hover {
+  background: rgba(14, 165, 233, 0.08);
+  color: var(--brand-600);
+}
+
+.file-tree-item.active {
+  background: var(--surface);
+  color: var(--brand-600);
+  font-weight: 700;
+}
+
+.file-tree-icon {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  font-size: 14px;
+}
+
+.file-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 12px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.code-viewer {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.code-viewer-header {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.code-viewer-file {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-viewer-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.code-viewer-placeholder p {
+  margin: 0;
+}
+
+.code-viewer-generating {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.code-viewer-generating p {
+  margin: 0;
+}
+
+.code-viewer-content {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  background: #ffffff;
+  color: #24292e;
+  font-family: 'Fira Code', Consolas, Monaco, 'Courier New', monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.code-viewer-content code {
+  color: inherit;
+  background: none;
+  padding: 0;
+  text-shadow: none;
+}
+
+.file-explorer-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* ===== 新增面板响应式 ===== */
+@media (max-width: 1024px) {
+  .step-panel,
+  .code-panel {
+    flex: none;
+    height: 60vh;
+  }
+
+  .code-panel {
+    min-width: 0;
+    height: auto;
+    max-height: 420px;
+  }
+
+  .file-explorer-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(320px, 1fr);
+  }
+
+  .file-tree {
+    display: flex;
+    max-height: 132px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  .file-tree-item {
     flex: 0 0 180px;
     border-right: 1px solid rgba(148, 163, 184, 0.16);
     border-bottom: 0;
