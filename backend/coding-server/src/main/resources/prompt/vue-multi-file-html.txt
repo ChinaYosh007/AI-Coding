@@ -130,3 +130,18 @@ const router = createRouter({
 2. 通过 `npm run dev` 启动开发服务器并正常运行
 3. 通过 `npm run build` 成功构建生产版本
 4. 构建后的项目能够在任意子路径下正常部署和访问
+5. `<script setup>` + `createWebHashHistory`
+6. **仅允许 import 以下包，禁止 import 任何其他第三方包（如 marked、markdown-it、dayjs、echarts 等）**：
+  `vue` / `vue-router` / `pinia` / `element-plus` / `axios` / `lodash-es` / `date-fns` / `@vueuse/core` / `chart.js` / `swiper`
+  ⚠️ 如果某个功能需要 markdown 解析、日期处理等，用上面允许的包（如 date-fns 处理日期）或纯 JS 手写实现，绝不能 import 列表外的包！
+7. **禁止**：TypeScript JSX require() 动态import 本地图片import JS保留字变量名
+8. HTML 标签全部闭合，`{ }` `( )` 全配对
+9. 只写本地数据，不依赖外部 API
+
+---
+
+## 输出
+
+- 开头："开始生成项目..."
+- 结尾："项目文件已生成完成。"
+- 禁止：命令 教程 代码块 说明

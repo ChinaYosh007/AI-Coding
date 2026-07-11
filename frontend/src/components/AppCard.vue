@@ -47,6 +47,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { MessageOutlined, GlobalOutlined, StarFilled } from '@ant-design/icons-vue'
+import { getDisplayNameFromText } from '@/utils/appNameParser'
 
 interface Props {
   app: API.AppVO
@@ -63,25 +64,6 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<Emits>()
-
-const getDisplayNameFromText = (text?: string) => {
-  const value = text?.trim()
-  if (!value) return ''
-
-  if (value.startsWith('{') && value.endsWith('}')) {
-    try {
-      const parsed = JSON.parse(value)
-      const parsedName = parsed?.appName || parsed?.title || parsed?.name
-      if (typeof parsedName === 'string' && parsedName.trim()) {
-        return parsedName.trim()
-      }
-    } catch (error) {
-      console.warn('解析应用名称失败：', error)
-    }
-  }
-
-  return value
-}
 
 const displayAppName = computed(() => {
   return getDisplayNameFromText(props.app.appName) || getDisplayNameFromText(props.app.initPrompt) || '未命名应用'
