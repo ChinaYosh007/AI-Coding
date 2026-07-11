@@ -52,7 +52,12 @@
       :scroll="{ x: 1200 }"
     >
       <template #bodyCell="{ column, record }">
-        <template v-if="column.dataIndex === 'cover'">
+        <template v-if="column.dataIndex === 'appName'">
+          <a-tooltip :title="getDisplayNameFromText(record.appName)">
+            {{ getDisplayNameFromText(record.appName) }}
+          </a-tooltip>
+        </template>
+        <template v-else-if="column.dataIndex === 'cover'">
           <a-image v-if="record.cover" :src="record.cover" :width="80" :height="60" />
           <div v-else class="no-cover">无封面</div>
         </template>
@@ -108,6 +113,7 @@ import { message } from 'ant-design-vue'
 import { SearchOutlined } from '@ant-design/icons-vue'
 import { listAppVoByPageByAdmin, deleteAppByAdmin, updateAppByAdmin } from '@/api/appController'
 import { CODE_GEN_TYPE_OPTIONS, formatCodeGenType } from '@/utils/codeGenTypes'
+import { getDisplayNameFromText } from '@/utils/appNameParser'
 import { formatTime } from '@/utils/time'
 import UserInfo from '@/components/UserInfo.vue'
 
