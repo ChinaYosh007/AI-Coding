@@ -71,8 +71,7 @@ langchain4j:
       max-tokens: 8192
       log-requests: true
       log-responses: true
-
-  oss:
+oss:
     endpoint: ${OSS_ENDPOINT}
     access-key-id: ${OSS_ACCESS_KEY_ID}
     access-key-secret: ${OSS_ACCESS_KEY_SECRET}
