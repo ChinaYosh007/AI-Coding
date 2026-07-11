@@ -15,7 +15,7 @@ const loginUserStore = useLoginUserStore()
 // 用户提示词
 const userPrompt = ref('')
 const creating = ref(false)
-const selectedCodeGenType = ref(CodeGenTypeEnum.MULTI_FILE)
+const selectedCodeGenType = ref(CodeGenTypeEnum.AUTO)
 
 const selectedCodeGenTypeLabel = computed(() => {
   return (
@@ -42,6 +42,12 @@ const featuredAppsPage = reactive({
   current: 1,
   pageSize: 6,
   total: 0,
+})
+
+// 平台统计数据（用于"敬请期待"动态展示）
+const platformStats = reactive({
+  totalApps: 0,
+  loading: false,
 })
 
 // 快捷模板
@@ -149,6 +155,7 @@ const loadFeaturedApps = async () => {
     if (res.data.code === 0 && res.data.data) {
       featuredApps.value = res.data.data.records || []
       featuredAppsPage.total = res.data.data.totalRow || 0
+      platformStats.totalApps = featuredAppsPage.total
     }
   } catch (error) {
     console.error('加载精选应用失败：', error)
@@ -241,7 +248,13 @@ onMounted(() => {
                       v-for="option in CODE_GEN_TYPE_OPTIONS"
                       :key="option.value"
                     >
-                      {{ option.label }}
+                      <div class="type-menu-item">
+                        <span class="type-menu-label">
+                          {{ option.label }}
+                          <a-tag v-if="option.value === 'auto'" color="blue" :bordered="false" style="margin-left: 4px; font-size: 11px;">推荐</a-tag>
+                        </span>
+                        <small class="type-menu-desc">{{ option.desc }}</small>
+                      </div>
                     </a-menu-item>
                   </a-menu>
                 </template>
@@ -340,7 +353,12 @@ onMounted(() => {
         <div v-else class="empty-state">
           <div class="empty-icon">✨</div>
           <p class="empty-title">暂无精选案例</p>
-          <p class="empty-desc">敬请期待更多优秀作品</p>
+          <p class="empty-desc">
+            {{ platformStats.totalApps > 0
+              ? `平台已有 ${platformStats.totalApps} 个作品被精选，快来创作你的优秀应用吧`
+              : '敬请期待更多优秀作品，你也可以成为第一个被精选的创作者'
+            }}
+          </p>
         </div>
         <div v-if="featuredAppsPage.total > featuredAppsPage.pageSize" class="pagination-wrapper">
           <a-pagination
@@ -599,6 +617,26 @@ onMounted(() => {
 .composer-type-button span {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.type-menu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+}
+
+.type-menu-label {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.type-menu-desc {
+  font-size: 11px;
+  color: var(--text-3, #94a3b8);
   white-space: nowrap;
 }
 

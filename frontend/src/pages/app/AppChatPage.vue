@@ -153,7 +153,7 @@
                   <span class="typing-dots">
                     <i></i><i></i><i></i>
                   </span>
-                  <span>AI 正在思考…</span>
+                  <span>{{ message.content || 'AI 正在思考…' }}</span>
                 </div>
               </div>
             </div>
@@ -542,6 +542,7 @@ import {
 import { listAppVersions } from '@/api/appVersionController'
 import { listAppChatHistory } from '@/api/chatHistoryController'
 import { CodeGenTypeEnum, formatCodeGenType } from '@/utils/codeGenTypes'
+import { getDisplayNameFromText } from '@/utils/appNameParser'
 import { formatTime } from '@/utils/time'
 import request from '@/request'
 
@@ -694,25 +695,6 @@ const isOwner = computed(() => {
 const isAdmin = computed(() => {
   return loginUserStore.loginUser.userRole === 'admin'
 })
-
-const getDisplayNameFromText = (text?: string) => {
-  const value = text?.trim()
-  if (!value) return ''
-
-  if (value.startsWith('{') && value.endsWith('}')) {
-    try {
-      const parsed = JSON.parse(value)
-      const parsedName = parsed?.appName || parsed?.title || parsed?.name
-      if (typeof parsedName === 'string' && parsedName.trim()) {
-        return parsedName.trim()
-      }
-    } catch (error) {
-      console.warn('解析应用名称失败：', error)
-    }
-  }
-
-  return value
-}
 
 const displayAppName = computed(() => {
   return getDisplayNameFromText(appInfo.value?.appName) || getDisplayNameFromText(appInfo.value?.initPrompt) || '网站生成器'
