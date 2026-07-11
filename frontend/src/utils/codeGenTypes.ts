@@ -15,7 +15,7 @@ export const CODE_GEN_TYPE_CONFIG = {
   [CodeGenTypeEnum.AUTO]: {
     label: '智能自动模式',
     value: CodeGenTypeEnum.AUTO,
-    desc: 'AI 根据需求自动选择最佳生成方案',
+    desc: 'AI 根据需求自动选择，简单页面无需 npm，复杂应用用 Vue',
   },
   [CodeGenTypeEnum.HTML]: {
     label: '原生 HTML 模式',
