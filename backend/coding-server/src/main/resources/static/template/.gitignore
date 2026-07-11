@@ -1,0 +1,3 @@
+# 模板目录不包含 node_modules，依赖由 VueProjectInitializer 在项目初始化时通过 npm install 安装
+vue/node_modules/
+vue/package-lock.json

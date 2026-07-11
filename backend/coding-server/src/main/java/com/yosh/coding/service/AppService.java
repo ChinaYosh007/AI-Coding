@@ -37,7 +37,7 @@ public interface AppService extends IService<App> {
 
     String exportAppChatHistoryAsMarkdown(Long appId);
 
-    void summarizeAppChatHistoryMemory(Long appId);
+    void summarizeAppChatHistoryMemory(Long appId, Long version);
 
     String getAppChatHistoryMemory(Long appId);
 
@@ -47,4 +47,6 @@ public interface AppService extends IService<App> {
 
 
     File getAppCodeZip(Long appId, Long version, LoginUserVO loginUser);
+
+
 }

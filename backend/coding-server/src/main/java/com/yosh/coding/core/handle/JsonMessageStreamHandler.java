@@ -1,18 +1,16 @@
 package com.yosh.coding.core.handle;
 
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.yosh.coding.artificalIntelligence.model.message.AiResponseMessage;
+import com.yosh.coding.artificalIntelligence.model.message.DevServerMessage;
 import com.yosh.coding.artificalIntelligence.model.message.StreamMessage;
 import com.yosh.coding.artificalIntelligence.model.message.ToolExecutedMessage;
 import com.yosh.coding.artificalIntelligence.model.message.ToolRequestMessage;
 import com.yosh.coding.core.builder.BuilderVueCommand;
 import com.yosh.coding.service.AppVersionService;
 import com.yosh.coding.service.ChatHistoryService;
-import com.yosh.exception.BusinessException;
-import com.yosh.exception.ErrorCode;
 import com.yosh.model.constants.AppConstant;
 import com.yosh.model.entity.AppVersion;
 import com.yosh.model.enums.MessageTypeEnum;
@@ -20,16 +18,13 @@ import com.yosh.model.enums.StreamMessageTypeEnum;
 import com.yosh.model.vo.LoginUserVO;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.annotation.REntity;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.io.File;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-
-import static com.yosh.model.enums.StreamMessageTypeEnum.AI_RESPONSE;
 
 /**
  * JSON 消息流处理器
@@ -68,28 +63,58 @@ public class JsonMessageStreamHandler {
                 })
                 .filter(StrUtil::isNotEmpty) // 过滤空字串
                 .doOnComplete(() -> {
+                    // 流结束后保存聊天记录（轻量操作，不阻塞）
                     try {
                         String aiResponse = chatHistoryStringBuilder.toString();
                         chatHistoryService.addChatHistory(appId, loginUser.getId(), aiResponse, MessageTypeEnum.AI.getValue());
                         updateAppVersionResponse(appId, version, aiResponse);
-                        
-                        String path = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + AppConstant.VUE_PREFIX + appId + "_" + version;
-                        CompletableFuture.runAsync(() -> {
-                            boolean buildResult = builderVueCommand.buildOnly(path);
-                            if (!buildResult) {
-                                log.error("Vue 项目构建失败, appId={}, version={}", appId, version);
-                                chatHistoryService.addChatHistory(appId, loginUser.getId(), 
-                                    "[系统提示] Vue 项目构建失败，请检查代码是否有语法错误。", MessageTypeEnum.AI.getValue());
-                            }
-                        });
                     } catch (Exception e) {
-                        log.error("流完成后的处理失败: {}", e.getMessage(), e);
+                        log.error("保存聊天记录失败: {}", e.getMessage(), e);
                     }
                 })
+                // 在流末尾追加开发服务器 URL
+                .concatWith(Mono.fromCallable(() -> {
+                    try {
+                        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator
+                                + AppConstant.VUE_PREFIX + appId + "_" + version;
+                        File projectDir = new File(projectPath);
+
+                        // 确保依赖已安装
+                        File nodeModules = new File(projectDir, "node_modules");
+                        if (!nodeModules.exists()) {
+                            log.info("node_modules 不存在，先执行 npm install: {}", projectPath);
+                            boolean ok = builderVueCommand.executeNpmInstallOnly(projectDir);
+                            if (!ok) {
+                                log.error("npm install 失败, appId={}", appId);
+                                chatHistoryService.addChatHistory(appId, loginUser.getId(),
+                                    "[系统提示] npm install 失败，请检查依赖配置。", MessageTypeEnum.AI.getValue());
+                                return "";
+                            }
+                        }
+
+                        // 启动开发服务器
+                        int port = 5173 + (int)(appId % 100);
+                        String url = builderVueCommand.startDevServer(projectDir, appId);
+                        if (url != null) {
+                            log.info("Vue 开发服务器已启动, url={}", url);
+                            DevServerMessage msg = new DevServerMessage(url);
+                            return JSONUtil.toJsonStr(msg);
+                        } else {
+                            log.error("开发服务器启动失败, appId={}", appId);
+                            chatHistoryService.addChatHistory(appId, loginUser.getId(),
+                                "[系统提示] 开发服务器启动失败，请重试。", MessageTypeEnum.AI.getValue());
+                            return "";
+                        }
+                    } catch (Exception e) {
+                        log.error("启动开发服务器异常: {}", e.getMessage(), e);
+                        return "";
+                    }
+                })
+                .filter(StrUtil::isNotEmpty))
                 .doOnError(error -> {
                     // 如果AI回复失败，也要记录错误消息
                     String errorMessage = "AI回复失败: " + error.getMessage();
-                    chatHistoryService.addChatHistory(appId,loginUser.getId(), errorMessage,MessageTypeEnum.AI.getValue());
+                    chatHistoryService.addChatHistory(appId, loginUser.getId(), errorMessage, MessageTypeEnum.AI.getValue());
                 });
     }
 

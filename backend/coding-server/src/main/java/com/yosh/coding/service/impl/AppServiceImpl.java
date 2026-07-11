@@ -5,6 +5,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.yosh.coding.core.AiCodeGeneratorFacade;
@@ -14,6 +15,7 @@ import com.yosh.coding.service.AppCollaborationService;
 import com.yosh.coding.service.AppVersionService;
 import com.yosh.coding.service.ChatHistoryService;
 import com.yosh.coding.service.UserService;
+import com.yosh.common.OssEntry;
 import com.yosh.exception.BusinessException;
 import com.yosh.exception.ErrorCode;
 import com.yosh.exception.ThrowUtils;
@@ -35,6 +37,7 @@ import com.yosh.model.vo.AppCollaborationMemberVO;
 import com.yosh.model.vo.AppVO;
 import com.yosh.model.vo.LoginUserVO;
 import com.yosh.model.vo.UserVO;
+import com.yosh.utils.ScreenshotUtil;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -43,6 +46,7 @@ import org.redisson.client.RedisException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 
 import java.io.File;
@@ -92,6 +96,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     @Resource
     private BuilderVueCommand builderVueCommand;
 
+    private  CodeGenTypeEnum getAppType(Long appId){
+        return CodeGenTypeEnum.getEnumByValue(getById(appId).getCodeGenType());
+    }
     @Override
     public Long getAppChatHistoryStats(Long appId) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID不能为空");
@@ -102,7 +109,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     @Override
     public String exportAppChatHistoryAsMarkdown(Long appId) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID不能为空");
-        QueryWrapper queryWrapper = QueryWrapper.create().eq(ChatHistory::getAppId, appId);
+        QueryWrapper queryWrapper = QueryWrapper.create()
+                .eq(ChatHistory::getAppId, appId)
+                .orderBy(ChatHistory::getCreateTime, true);
         List<ChatHistory> chatHistoryList = chatHistoryService.list(queryWrapper);
         return chatHistoryList.stream().map(chatHistory -> {
             String message = chatHistory.getMessage();
@@ -112,17 +121,22 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     }
 
     @Override
-    public void summarizeAppChatHistoryMemory(Long appId) {
+    @Transactional
+    public void summarizeAppChatHistoryMemory(Long appId, Long version) {
         String markdown = exportAppChatHistoryAsMarkdown(appId);
         String str = aiCodeGeneratorFacade.summarizeAppChatHistoryMemory(markdown, appId);
-        //清楚旧的数据
+        //处理旧的数据
         chatHistoryService.remove(QueryWrapper.create().eq(ChatHistory::getAppId, appId));
         chatHistoryService.save(BeanUtil.toBean(ChatHistory.builder().appId(appId).message(str).messageType(MessageTypeEnum.AI.getValue()).build(), ChatHistory.class));
+        //获取文件类型
+        CodeGenTypeEnum type = getAppType(appId);
+        aiCodeGeneratorFacade.clearAppMemory(appId,version,type);
     }
 
     @Override
     public String getAppChatHistoryMemory(Long appId) {
-        return aiCodeGeneratorFacade.getAppChatHistoryMemory(appId);
+        String chatHistory = exportAppChatHistoryAsMarkdown(appId);
+        return JSONUtil.toJsonStr(Map.of("chatHistory", chatHistory));
     }
 
     @Override
@@ -209,6 +223,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         ThrowUtils.throwIf(zipFile == null || !zipFile.exists(), ErrorCode.OPERATION_ERROR, "zip app source failed");
         return zipFile;
     }
+
 
     private File zipAppSource(File sourceDir, Long appId, Long version) {
         File zipFile = FileUtil.file(FileUtil.getTmpDirPath(), "app-" + appId + "-v" + version + ".zip");
@@ -484,7 +499,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
             return appVO;
         }).collect(Collectors.toList());
     }
+    @Resource
+    private OssEntry ossEntry;
     @Override
+    @Transactional
     public String developApp(Long appId, LoginUserVO loginUser,Long version){
         //权限校验
         ThrowUtils.throwIf(version == null,ErrorCode.ERROR_QUERY,"version isn't null!!!");
@@ -525,16 +543,33 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
             FileUtil.mkdir(devPath);
             // 复制文件
             FileUtil.copyContent(sourceDirFile, devDir, true);
+            log.info("deploy success -------->_<-------------------");
         } catch (Exception e) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to deploy application: " + e.getMessage());
         }
+        String format = String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, devKey);
+        String finalDevKey = devKey;
+        //开启虚拟线程进行截图保存数据库
+        Thread.startVirtualThread(() -> {
+            byte[] screenshotBytes = ScreenshotUtil.getScreenshotBytes(format);
+            App upApp = BeanUtil.copyProperties(app,App.class);
+            upApp.setDeployedTime(LocalDateTime.now());
+            upApp.setDeployKey(finalDevKey);
 
-        App upApp = BeanUtil.copyProperties(app,App.class);
-        upApp.setDeployedTime(LocalDateTime.now());
-        upApp.setDeployKey(devKey);
-        Boolean res = this.updateById(upApp);
-        ThrowUtils.throwIf(!res,ErrorCode.OPERATION_ERROR,"error,sorry...");
-        return String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, devKey);
+            // 保存截图
+            String image = null;
+            try {
+                image = ScreenshotUtil.saveScreenshot(screenshotBytes, ossEntry);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            log.info("save screenshot success -------->_<-------------------");
+            upApp.setCover(image);
+            Boolean res = this.updateById(upApp);
+            ThrowUtils.throwIf(!res,ErrorCode.OPERATION_ERROR,"error,sorry...");
+        });
+
+        return format;
 
     }
 

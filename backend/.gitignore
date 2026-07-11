@@ -3,7 +3,9 @@ target/
 *.log
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
+**/src/test/
 !**/src/test/**/target/
+
 
 ### 敏感配置 ###
 .env

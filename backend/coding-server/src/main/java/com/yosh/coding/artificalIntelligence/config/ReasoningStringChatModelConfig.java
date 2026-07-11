@@ -13,8 +13,8 @@ import org.springframework.context.annotation.Configuration;
 public class ReasoningStringChatModelConfig {
     private String baseUrl;
     private String apiKey;
-    private final String model = "deepseek-reasoner";
-    private final int maxTokens = 32767;
+    private  String model = "qwen-turbo";
+    private final int maxTokens = 8192;
 
     /**
      * vue
