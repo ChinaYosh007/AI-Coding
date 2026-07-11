@@ -43,6 +43,7 @@ public class StreamHandlerExecutor {
         return switch (codeGenType) {
             case VUE_PROJECT -> // 使用注入的组件实例
                     jsonMessageStreamHandler.handle(originFlux, chatHistoryService, appId, version, loginUser);
+            case AUTO -> null;//不会存在
             case HTML, MULTI_FILE -> // 简单文本处理器不需要依赖注入
                     new SimpleTextStreamHandler(appVersionService)
                             .handle(originFlux, chatHistoryService, appId, version, loginUser);

@@ -5,6 +5,7 @@ import com.mybatisflex.core.service.IService;
 import com.yosh.model.dto.app.AppCollaborationInviteRequest;
 import com.yosh.model.dto.app.AppQueryRequest;
 import com.yosh.model.entity.App;
+import com.yosh.model.enums.CodeGenTypeEnum;
 import com.yosh.model.vo.AppCollaborationMemberVO;
 import com.yosh.model.vo.AppVO;
 import com.yosh.model.vo.LoginUserVO;
@@ -27,6 +28,8 @@ public interface AppService extends IService<App> {
 
     List<AppVO> getAppVOList(List<App> appList);
 
+
+    CodeGenTypeEnum generateRoute(String prompt);
 
     Flux<String> chatToGenCode(Long appId, String message, LoginUserVO loginUser);
 

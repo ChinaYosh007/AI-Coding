@@ -28,11 +28,11 @@ import dev.langchain4j.service.SystemMessage;
 
 public interface AiCodeGeneratorService {
 
-    @SystemMessage(fromResource = "prompt/code-one-file-html.txt")
+    @SystemMessage(fromResource = "prompt/code-one-file-html.md")
     HtmlCodeResult generateCode(String userMessage);
 
 
-    @SystemMessage(fromResource = "prompt/code-multi-file-html.txt")
+    @SystemMessage(fromResource = "prompt/code-multi-file-html.md")
     MultiFileCodeResult generateMultiCode(String userMessage);
 }
 

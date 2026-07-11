@@ -8,7 +8,7 @@ import com.yosh.coding.artificalIntelligence.model.HtmlCodeResult;
 import com.yosh.coding.artificalIntelligence.model.MultiFileCodeResult;
 import com.yosh.coding.artificalIntelligence.model.message.AiResponseMessage;
 import com.yosh.coding.artificalIntelligence.model.message.ToolExecutedMessage;
-import com.yosh.coding.artificalIntelligence.skill.WriteToFile;
+import com.yosh.coding.artificalIntelligence.skill.*;
 import com.yosh.coding.core.builder.BuilderVueCommand;
 import com.yosh.coding.core.parser.CodeParserExcutor;
 import com.yosh.coding.core.saver.CodeFilleSaveExecutor;
@@ -35,7 +35,7 @@ import reactor.core.publisher.SignalType;
 
 import java.io.File;
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+import java.util.List;
 
 import com.yosh.coding.core.builder.VueProjectInitializer;
 import com.yosh.model.constants.AppConstant;
@@ -62,9 +62,6 @@ public class AiCodeGeneratorFacade {
     @Resource
     private VueProjectInitializer vueProjectInitializer;
     @Resource
-    private BuilderVueCommand builderVueCommand;
-    @Resource
-    private ChatHistoryService chatHistoryService;
     /**
      * 缓存内部
      * @param appId
@@ -78,6 +75,23 @@ public class AiCodeGeneratorFacade {
             .expireAfterAccess(Duration.ofMinutes(30))
             .removalListener((key, value, cause) -> log.info("Cache removed key: {} with value: {}", key, value))
             .build();
+
+    /**
+     * 预加载tools
+     * @param appId
+     * @param version
+     * @return
+     */
+    @Deprecated
+    private List<Object> loadSkill(long appId, long version) {
+        return List.of(
+                new WriteToFile(appId, version),
+                new DeleteFile(appId, version),
+                new ModifyFile(appId, version),
+                new ReadFile(appId, version),
+                new ReadProjectDir(appId, version)
+        );
+    }
     public AiCodeGeneratorService createAiCodeGeneratorService(long appId, long version,CodeGenTypeEnum type) {
         // 清理旧缓存
         redisChatMemoryStore.deleteMessages(appId);
@@ -94,7 +108,7 @@ public class AiCodeGeneratorFacade {
                 AiCodeGeneratorService build = AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(chatModel)
                         .streamingChatModel(openAiStreamingChatModel)
-                        .tools(new WriteToFile(appId, version))
+                        .tools(loadSkill(appId,version))
                         .chatMemoryProvider(id -> messageWindowChatMemory)
                         .hallucinatedToolNameStrategy((request) -> ToolExecutionResultMessage.from(request,
                                 "error: there no tool called " + request.name()))
@@ -115,6 +129,9 @@ public class AiCodeGeneratorFacade {
         };
 
     }
+
+
+
     public  AiCodeGeneratorService getAiCodeGeneratorService(Long appId,Long version){
         return this.getAiCodeGeneratorService(appId, version, CodeGenTypeEnum.HTML);
     }
@@ -181,8 +198,7 @@ public class AiCodeGeneratorFacade {
                         log.error("AI 响应流错误: {}", error.getMessage(), error);
                         Throwable cause = error;
                         while (cause != null) {
-                            if (cause instanceof com.fasterxml.jackson.core.JsonParseException ||
-                                cause instanceof com.fasterxml.jackson.core.io.JsonEOFException) {
+                            if (cause instanceof com.fasterxml.jackson.core.JsonParseException) {
                                 AiResponseMessage errorMsg = new AiResponseMessage("\n\n[AI 响应格式错误] 工具调用参数解析失败，请重试。\n\n");
                                 sink.next(JSONUtil.toJsonStr(errorMsg));
                                 sink.complete();

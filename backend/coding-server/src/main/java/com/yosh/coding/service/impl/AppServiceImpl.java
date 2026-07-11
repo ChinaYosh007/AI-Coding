@@ -8,6 +8,8 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
+import com.yosh.coding.artificalIntelligence.AiCodeGenTypeRoutingService;
+import com.yosh.coding.artificalIntelligence.model.message.CodeGenTypeResult;
 import com.yosh.coding.core.AiCodeGeneratorFacade;
 import com.yosh.coding.core.builder.BuilderVueCommand;
 import com.yosh.coding.core.handle.StreamHandlerExecutor;
@@ -222,6 +224,22 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         File zipFile = zipAppSource(file, appId, version);
         ThrowUtils.throwIf(zipFile == null || !zipFile.exists(), ErrorCode.OPERATION_ERROR, "zip app source failed");
         return zipFile;
+    }
+
+    @Resource
+    private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
+    @Override
+    public CodeGenTypeEnum generateRoute(String prompt) {
+        CodeGenTypeResult result = aiCodeGenTypeRoutingService.routeCodeGenType(prompt);
+        if (result == null || StrUtil.isBlank(result.getCodeGenType())) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "AI路由分析失败");
+        }
+        try {
+            return CodeGenTypeEnum.valueOf(result.getCodeGenType());
+        } catch (IllegalArgumentException e) {
+            log.error("AI返回的代码生成类型无效: {}", result.getCodeGenType(), e);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "AI返回的代码生成类型无效: " + result.getCodeGenType());
+        }
     }
 
 

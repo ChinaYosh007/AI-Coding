@@ -3,11 +3,13 @@ package com.yosh.coding.core.handle;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import com.yosh.coding.artificalIntelligence.model.message.AiResponseMessage;
 import com.yosh.coding.artificalIntelligence.model.message.DevServerMessage;
-import com.yosh.coding.artificalIntelligence.model.message.StreamMessage;
-import com.yosh.coding.artificalIntelligence.model.message.ToolExecutedMessage;
-import com.yosh.coding.artificalIntelligence.model.message.ToolRequestMessage;
+import com.yosh.coding.artificalIntelligence.skill.BaseTool;
+import com.yosh.coding.artificalIntelligence.skill.DeleteFile;
+import com.yosh.coding.artificalIntelligence.skill.ModifyFile;
+import com.yosh.coding.artificalIntelligence.skill.ReadFile;
+import com.yosh.coding.artificalIntelligence.skill.ReadProjectDir;
+import com.yosh.coding.artificalIntelligence.skill.WriteToFile;
 import com.yosh.coding.core.builder.BuilderVueCommand;
 import com.yosh.coding.service.AppVersionService;
 import com.yosh.coding.service.ChatHistoryService;
@@ -24,7 +26,11 @@ import reactor.core.publisher.Mono;
 
 import java.io.File;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * JSON 消息流处理器
@@ -56,10 +62,11 @@ public class JsonMessageStreamHandler {
         StringBuilder chatHistoryStringBuilder = new StringBuilder();
         // 用于跟踪已经见过的工具ID，判断是否是第一次调用
         Set<String> seenToolIds = new HashSet<>();
+        Map<String, BaseTool> tools = createToolMap(appId, version);
         return originFlux
                 .map(chunk -> {
                     // 解析每个 JSON 消息块
-                    return handleJsonMessageChunk(chunk, chatHistoryStringBuilder, seenToolIds);
+                    return handleJsonMessageChunk(chunk, chatHistoryStringBuilder, seenToolIds, tools);
                 })
                 .filter(StrUtil::isNotEmpty) // 过滤空字串
                 .doOnComplete(() -> {
@@ -121,7 +128,10 @@ public class JsonMessageStreamHandler {
     /**
      * 解析并收集 TokenStream 数据
      */
-    private String handleJsonMessageChunk(String chunk, StringBuilder chatHistoryStringBuilder, Set<String> seenToolIds) {
+    private String handleJsonMessageChunk(String chunk,
+                                          StringBuilder chatHistoryStringBuilder,
+                                          Set<String> seenToolIds,
+                                          Map<String, BaseTool> tools) {
         if (StrUtil.isBlank(chunk)) {
             return "";
         }
@@ -131,72 +141,100 @@ public class JsonMessageStreamHandler {
             return chunk;
         }
         // 解析 JSON
-        StreamMessage streamMessage;
+        JSONObject messageJson;
         try {
-            streamMessage = JSONUtil.toBean(chunk, StreamMessage.class);
+            messageJson = JSONUtil.parseObj(trimmedChunk);
         } catch (Exception e) {
             chatHistoryStringBuilder.append(chunk);
             return chunk;
         }
-        StreamMessageTypeEnum typeEnum = StreamMessageTypeEnum.getEnumByValue(streamMessage.getType());
+        StreamMessageTypeEnum typeEnum = StreamMessageTypeEnum.getEnumByValue(messageJson.getStr("type"));
         if (typeEnum == null) {
             chatHistoryStringBuilder.append(chunk);
             return chunk;
         }
         switch (typeEnum) {
             case AI_RESPONSE -> {
-                AiResponseMessage aiMessage = JSONUtil.toBean(chunk, AiResponseMessage.class);
-                String data = aiMessage.getData();
+                String data = messageJson.getStr("data", "");
                 // 直接拼接响应
                 chatHistoryStringBuilder.append(data);
                 return data;
             }
             case TOOL_REQUEST -> {
-                ToolRequestMessage toolRequestMessage = JSONUtil.toBean(chunk, ToolRequestMessage.class);
-                String toolId = toolRequestMessage.getId();
+                String toolId = messageJson.getStr("id");
+                String toolName = messageJson.getStr("name");
                 // 检查是否是第一次看到这个工具 ID
-                if (toolId != null && !seenToolIds.contains(toolId)) {
-                    // 第一次调用这个工具，记录 ID 并完整返回工具信息
-                    seenToolIds.add(toolId);
-                    return "\n\n[选择工具] 写入文件\n\n";
+                if (StrUtil.isNotBlank(toolId) && seenToolIds.add(toolId)) {
+                    // 第一次调用这个工具，记录 ID 并返回工具信息
+                    // 返回格式化的工具调用信息
+                    BaseTool tool = tools.get(toolName);
+                    if (tool == null) {
+                        log.warn("Unknown tool request: id={}, name={}", toolId, toolName);
+                        return String.format("\n\n[选择工具] %s\n\n", StrUtil.blankToDefault(toolName, "未知工具"));
+                    }
+                    return tool.generateToolRequestResponse();
                 } else {
                     // 不是第一次调用这个工具，直接返回空
                     return "";
                 }
             }
             case TOOL_EXECUTED -> {
-                ToolExecutedMessage toolExecutedMessage = JSONUtil.toBean(chunk, ToolExecutedMessage.class);
-                String arguments = toolExecutedMessage.getArguments();
-                
-                // 防御性检查：确保 arguments 是有效的 JSON 对象
-                if (StrUtil.isBlank(arguments) || !arguments.trim().startsWith("{")) {
-                    log.warn("工具参数不是有效的 JSON 对象: {}", arguments);
-                    return "\n\n[工具调用] 写入文件（参数解析失败）\n\n";
-                }
-                
-                try {
-                    JSONObject jsonObject = JSONUtil.parseObj(arguments);
-                    String relativeFilePath = jsonObject.getStr("relativePath");
-                    if (StrUtil.isBlank(relativeFilePath)) {
-                        relativeFilePath = jsonObject.getStr("relativeFilePath");
-                    }
-                    String result = String.format("""
-                            [工具调用] 写入文件 %s
-                            
-                            """, relativeFilePath);
-                    // 输出前端和要持久化的内容
-                    String output = String.format("\n\n%s\n\n", result);
-                    chatHistoryStringBuilder.append(output);
-                    return output;
-                } catch (Exception e) {
-                    log.error("工具参数解析失败: {}", arguments, e);
-                    return "\n\n[工具调用] 写入文件（参数解析失败）\n\n";
-                }
+                String toolId = messageJson.getStr("id");
+                String toolName = messageJson.getStr("name");
+                JSONObject arguments = parseToolArguments(messageJson.get("arguments"), toolId, toolName);
+                // 根据工具名称获取工具实例并生成相应的结果格式
+                BaseTool tool = tools.get(toolName);
+                String result = generateToolExecutedResult(tool, toolName, arguments);
+                // 输出前端和要持久化的内容
+                String output = String.format("\n\n%s\n\n", result);
+                chatHistoryStringBuilder.append(output);
+                return output;
             }
+
             default -> {
                 log.error("不支持的消息类型: {}", typeEnum);
                 return "";
             }
+        }
+    }
+
+    private Map<String, BaseTool> createToolMap(long appId, long version) {
+        return List.<BaseTool>of(
+                        new WriteToFile(appId, version),
+                        new DeleteFile(appId, version),
+                        new ModifyFile(appId, version),
+                        new ReadFile(appId, version),
+                        new ReadProjectDir(appId, version)
+                ).stream()
+                .collect(Collectors.toUnmodifiableMap(BaseTool::getToolName, Function.identity()));
+    }
+
+    private JSONObject parseToolArguments(Object rawArguments, String toolId, String toolName) {
+        if (rawArguments instanceof JSONObject jsonObject) {
+            return jsonObject;
+        }
+        if (rawArguments == null || StrUtil.isBlank(rawArguments.toString())) {
+            log.warn("Tool arguments are empty: id={}, name={}", toolId, toolName);
+            return new JSONObject();
+        }
+        try {
+            return JSONUtil.parseObj(rawArguments.toString());
+        } catch (Exception e) {
+            log.warn("Tool arguments are not a valid JSON object: id={}, name={}", toolId, toolName);
+            return new JSONObject();
+        }
+    }
+
+    private String generateToolExecutedResult(BaseTool tool, String toolName, JSONObject arguments) {
+        if (tool == null) {
+            log.warn("Unknown executed tool: name={}", toolName);
+            return String.format("[工具调用] %s", StrUtil.blankToDefault(toolName, "未知工具"));
+        }
+        try {
+            return tool.generateToolExecutedResult(arguments);
+        } catch (Exception e) {
+            log.warn("Failed to format tool execution result: name={}", toolName, e);
+            return String.format("[工具调用] %s（参数解析失败）", tool.getDisplayName());
         }
     }
 

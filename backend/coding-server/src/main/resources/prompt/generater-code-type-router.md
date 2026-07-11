@@ -9,3 +9,5 @@
 - 如果用户需求简单，只需要一个展示页面，选择 HTML
 - 如果用户需要多个页面但不涉及复杂交互，选择 MULTI_FILE
 - 如果用户需求复杂，涉及多页面、复杂交互、数据管理等，选择 VUE_PROJECT
+
+请仅返回上述类型之一的枚举名称（HTML、MULTI_FILE、VUE_PROJECT），以 json 格式输出，例如：{"codeGenType":"HTML"}

@@ -12,11 +12,11 @@ public interface AiCodeGeneratorService {
 
 
 
-    @SystemMessage(fromResource = "prompt/code-one-file-html.txt")
+    @SystemMessage(fromResource = "prompt/code-one-file-html.md")
     HtmlCodeResult generateHtmlCode(@MemoryId Long memoryId, @UserMessage String userMessage);
 
 
-    @SystemMessage(fromResource = "prompt/code-multi-file-html.txt")
+    @SystemMessage(fromResource = "prompt/code-multi-file-html.md")
     MultiFileCodeResult generateMultiFileCode(@MemoryId Long memoryId, @UserMessage String userMessage);
     /**
      * 生成 HTML 代码（流式）
@@ -24,7 +24,7 @@ public interface AiCodeGeneratorService {
      * @param userMessage 用户消息
      * @return 生成的代码结果
      */
-    @SystemMessage(fromResource = "prompt/code-one-file-html.txt")
+    @SystemMessage(fromResource = "prompt/code-one-file-html.md")
     Flux<String> generateHtmlCodeStream(@MemoryId Long memoryId, @UserMessage String userMessage);
 
     /**
@@ -33,7 +33,7 @@ public interface AiCodeGeneratorService {
      * @param userMessage 用户消息
      * @return 生成的代码结果
      */
-    @SystemMessage(fromResource = "prompt/code-multi-file-html.txt")
+    @SystemMessage(fromResource = "prompt/code-multi-file-html.md")
     Flux<String> generateMultiFileCodeStream(@MemoryId Long memoryId, @UserMessage String userMessage);
 
     @SystemMessage("根据初始化提示生成6个字应用名称，以JSON格式返回，例如：{\"appName\": \"示例应用\"}")
@@ -43,6 +43,6 @@ public interface AiCodeGeneratorService {
     @SystemMessage("根据应用ID获取聊天历史记录，以JSON格式返回，例如：{\"chatHistory\": \"用户询问了如何创建一个TODO应用，开发人员提供了详细步骤和代码示例。\"}")
     String getAppChatHistoryMemory(Long appId);
 
-    @SystemMessage(fromResource = "prompt/vue-multi-file-html.txt")
+    @SystemMessage(fromResource = "prompt/vue-multi-file-html.md")
     TokenStream generateVueCodeStream(@MemoryId Long appId, @UserMessage String userMessage);
 }

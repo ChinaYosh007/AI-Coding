@@ -1,5 +1,5 @@
 # 数据库初始化
-# @author <a href="https://github.com/chinayosh007">china yosh</a>
+# @author <generater-code-type-router.md href="https://github.com/chinayosh007">china yosh</generater-code-type-router.md>
 
 -- 创建库
 drop  database yupi_ai_code_monther;
