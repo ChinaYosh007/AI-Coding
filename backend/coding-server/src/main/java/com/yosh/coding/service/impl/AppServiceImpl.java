@@ -15,6 +15,7 @@ import com.yosh.coding.service.AppCollaborationService;
 import com.yosh.coding.service.AppVersionService;
 import com.yosh.coding.service.ChatHistoryService;
 import com.yosh.coding.service.UserService;
+import com.yosh.common.OssEntry;
 import com.yosh.exception.BusinessException;
 import com.yosh.exception.ErrorCode;
 import com.yosh.exception.ThrowUtils;
@@ -36,6 +37,7 @@ import com.yosh.model.vo.AppCollaborationMemberVO;
 import com.yosh.model.vo.AppVO;
 import com.yosh.model.vo.LoginUserVO;
 import com.yosh.model.vo.UserVO;
+import com.yosh.utils.ScreenshotUtil;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -497,7 +499,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
             return appVO;
         }).collect(Collectors.toList());
     }
+    @Resource
+    private OssEntry ossEntry;
     @Override
+    @Transactional
     public String developApp(Long appId, LoginUserVO loginUser,Long version){
         //权限校验
         ThrowUtils.throwIf(version == null,ErrorCode.ERROR_QUERY,"version isn't null!!!");
@@ -538,16 +543,33 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
             FileUtil.mkdir(devPath);
             // 复制文件
             FileUtil.copyContent(sourceDirFile, devDir, true);
+            log.info("deploy success -------->_<-------------------");
         } catch (Exception e) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to deploy application: " + e.getMessage());
         }
+        String format = String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, devKey);
+        String finalDevKey = devKey;
+        //开启虚拟线程进行截图保存数据库
+        Thread.startVirtualThread(() -> {
+            byte[] screenshotBytes = ScreenshotUtil.getScreenshotBytes(format);
+            App upApp = BeanUtil.copyProperties(app,App.class);
+            upApp.setDeployedTime(LocalDateTime.now());
+            upApp.setDeployKey(finalDevKey);
 
-        App upApp = BeanUtil.copyProperties(app,App.class);
-        upApp.setDeployedTime(LocalDateTime.now());
-        upApp.setDeployKey(devKey);
-        Boolean res = this.updateById(upApp);
-        ThrowUtils.throwIf(!res,ErrorCode.OPERATION_ERROR,"error,sorry...");
-        return String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, devKey);
+            // 保存截图
+            String image = null;
+            try {
+                image = ScreenshotUtil.saveScreenshot(screenshotBytes, ossEntry);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            log.info("save screenshot success -------->_<-------------------");
+            upApp.setCover(image);
+            Boolean res = this.updateById(upApp);
+            ThrowUtils.throwIf(!res,ErrorCode.OPERATION_ERROR,"error,sorry...");
+        });
+
+        return format;
 
     }
 
