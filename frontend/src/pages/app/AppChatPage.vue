@@ -56,220 +56,272 @@
 
     <!-- 主要内容区域 -->
     <div class="main-content">
-      <!-- 左侧对话区域 -->
-      <div class="chat-section">
-        <div class="panel-header">
-          <span class="panel-title">
-            <MessageOutlined />
-            对话记录
-          </span>
-          <div class="chat-tools">
-            <a-tooltip title="应用对话轮次">
-              <span class="chat-stat-pill">
-                <BarChartOutlined />
-                {{ displayDialogRounds }} 轮
-              </span>
-            </a-tooltip>
-            <a-button type="text" size="small" @click="exportChatMarkdown" :loading="exportingChat">
-              <template #icon>
-                <FileTextOutlined />
-              </template>
-              导出
-            </a-button>
-            <a-button type="text" size="small" @click="openMemoryModal" :loading="memoryLoading">
-              <template #icon>
-                <DatabaseOutlined />
-              </template>
-              记忆
-            </a-button>
-            <a-button type="text" size="small" @click="openCollaborationModal" :loading="collaborationLoading">
-              <template #icon>
-                <TeamOutlined />
-              </template>
-              协作
-            </a-button>
+      <!-- 左侧面板：步骤引导 / 精简对话 -->
+      <div class="step-panel">
+        <!-- 生成中：步骤进度 -->
+        <div v-if="isGenerating" class="step-progress-area">
+          <div class="panel-header">
+            <span class="panel-title">
+              <ThunderboltFilled />
+              生成进度
+            </span>
           </div>
-        </div>
-        <!-- 消息区域 -->
-        <div class="chat-overview">
-          <div v-for="item in chatOverviewItems" :key="item.label" class="chat-overview-item">
-            <span class="chat-overview-label">{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </div>
-        </div>
-        <div class="messages-container" ref="messagesContainer">
-          <!-- 加载更多按钮 -->
-          <div v-if="hasMoreHistory" class="load-more-container">
-            <a-button type="link" @click="loadMoreHistory" :loading="loadingHistory" size="small">
-              加载更多历史消息
-            </a-button>
-          </div>
-          <div v-for="(message, index) in messages" :key="index" class="message-item">
-            <div v-if="message.type === 'user'" class="user-message">
-              <div class="message-content">
-                <div class="message-meta">你 · {{ formatMessageTime(message.createTime) }}</div>
-                {{ message.content }}
-              </div>
-              <div class="message-avatar">
-                <a-avatar :src="loginUserStore.loginUser.userAvatar" />
-              </div>
+          <template v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)" :key="'stream-left'">
+            <div v-if="streamMsg.streamInfo" class="step-current-action">
+              <span>{{ streamMsg.streamInfo.currentAction }}</span>
+              <strong>{{ formatGeneratedSize(streamMsg.streamInfo.totalChars) }}</strong>
             </div>
-            <div v-else class="ai-message">
-              <div class="message-avatar">
-                <a-avatar :src="aiAvatar" />
-              </div>
-              <div class="message-content">
-                <div class="message-meta">AI 助手 · {{ formatMessageTime(message.createTime) }}</div>
-                <MarkdownRenderer v-if="message.content" :content="message.content" />
-                <div v-if="message.streamInfo" class="generation-activity">
-                  <div class="generation-activity-header">
-                    <span>{{ message.streamInfo.currentAction }}</span>
-                    <strong>{{ formatGeneratedSize(message.streamInfo.totalChars) }}</strong>
-                  </div>
-                  <div class="generation-steps">
-                    <span
-                        v-for="(step, stepIndex) in generationSteps"
-                        :key="step"
-                        class="generation-step"
-                        :class="{
-                          done: stepIndex < message.streamInfo.stage,
-                          active: stepIndex === message.streamInfo.stage,
-                        }"
-                    >
-                      {{ step }}
-                    </span>
-                  </div>
-                  <div v-if="message.streamInfo.fileNames.length" class="generation-files">
-                    <span
-                        v-for="fileName in message.streamInfo.fileNames"
-                        :key="fileName"
-                        :title="fileName"
-                    >
-                      {{ fileName }}
-                    </span>
-                  </div>
-                </div>
-                <div v-if="message.loading" class="loading-indicator">
-                  <span class="typing-dots">
-                    <i></i><i></i><i></i>
-                  </span>
-                  <span>{{ message.content || 'AI 正在思考…' }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 选中元素信息展示 -->
-        <a-alert
-            v-if="selectedElementInfo"
-            class="selected-element-alert"
-            type="info"
-            closable
-            @close="clearSelectedElement"
-        >
-          <template #message>
-            <div class="selected-element-info">
-              <div class="element-header">
-                <span class="element-tag">
-                  选中元素：{{ selectedElementInfo.tagName.toLowerCase() }}
-                </span>
-                <span v-if="selectedElementInfo.id" class="element-id">
-                  #{{ selectedElementInfo.id }}
-                </span>
-                <span v-if="selectedElementInfo.className" class="element-class">
-                  .{{ selectedElementInfo.className.split(' ').join('.') }}
-                </span>
-              </div>
-              <div class="element-details">
-                <div v-if="selectedElementInfo.textContent" class="element-item">
-                  内容: {{ selectedElementInfo.textContent.substring(0, 50) }}
-                  {{ selectedElementInfo.textContent.length > 50 ? '...' : '' }}
-                </div>
-                <div v-if="selectedElementInfo.pagePath" class="element-item">
-                  页面路径: {{ selectedElementInfo.pagePath }}
-                </div>
-                <div class="element-item">
-                  选择器:
-                  <code class="element-selector-code">{{ selectedElementInfo.selector }}</code>
-                </div>
+            <div class="generation-steps-vertical">
+              <div
+                v-for="(step, stepIndex) in generationSteps"
+                :key="step"
+                class="generation-step-item"
+                :class="{
+                  done: streamMsg.streamInfo && stepIndex < streamMsg.streamInfo.stage,
+                  active: streamMsg.streamInfo && stepIndex === streamMsg.streamInfo.stage,
+                }"
+              >
+                <span class="step-index">{{ stepIndex + 1 }}</span>
+                <span class="step-name">{{ step }}</span>
               </div>
             </div>
           </template>
-        </a-alert>
+          <div v-if="messages.filter(m => m.streamInfo).length === 0" class="step-waiting">
+            <a-spin size="small" />
+            <span>正在连接生成服务…</span>
+          </div>
+        </div>
 
-        <!-- 用户消息输入框 -->
-        <div class="input-container">
-          <div class="input-wrapper">
-            <a-tooltip v-if="!isOwner" title="无法在别人的作品下对话哦~" placement="top">
+        <!-- 非生成中：精简对话 -->
+        <div v-else class="chat-mini">
+          <div class="panel-header">
+            <span class="panel-title">
+              <MessageOutlined />
+              对话记录
+            </span>
+            <div class="chat-tools">
+              <a-tooltip title="应用对话轮次">
+                <span class="chat-stat-pill">
+                  <BarChartOutlined />
+                  {{ displayDialogRounds }} 轮
+                </span>
+              </a-tooltip>
+              <a-button type="text" size="small" @click="exportChatMarkdown" :loading="exportingChat">
+                <template #icon>
+                  <FileTextOutlined />
+                </template>
+                导出
+              </a-button>
+              <a-button type="text" size="small" @click="openMemoryModal" :loading="memoryLoading">
+                <template #icon>
+                  <DatabaseOutlined />
+                </template>
+                记忆
+              </a-button>
+              <a-button type="text" size="small" @click="openCollaborationModal" :loading="collaborationLoading">
+                <template #icon>
+                  <TeamOutlined />
+                </template>
+                协作
+              </a-button>
+            </div>
+          </div>
+          <div class="chat-overview">
+            <div v-for="item in chatOverviewItems" :key="item.label" class="chat-overview-item">
+              <span class="chat-overview-label">{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </div>
+          <div class="messages-container" ref="messagesContainer">
+            <div v-if="hasMoreHistory" class="load-more-container">
+              <a-button type="link" @click="loadMoreHistory" :loading="loadingHistory" size="small">
+                加载更多历史消息
+              </a-button>
+            </div>
+            <div v-for="(message, index) in messages.slice(-5)" :key="index" class="message-item">
+              <div v-if="message.type === 'user'" class="user-message">
+                <div class="message-content">
+                  <div class="message-meta">你 · {{ formatMessageTime(message.createTime) }}</div>
+                  {{ message.content }}
+                </div>
+                <div class="message-avatar">
+                  <a-avatar :src="loginUserStore.loginUser.userAvatar" />
+                </div>
+              </div>
+              <div v-else class="ai-message">
+                <div class="message-avatar">
+                  <a-avatar :src="aiAvatar" />
+                </div>
+                <div class="message-content">
+                  <div class="message-meta">AI 助手 · {{ formatMessageTime(message.createTime) }}</div>
+                  <MarkdownRenderer v-if="message.content" :content="message.content" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 选中元素信息展示 -->
+          <a-alert
+              v-if="selectedElementInfo"
+              class="selected-element-alert"
+              type="info"
+              closable
+              @close="clearSelectedElement"
+          >
+            <template #message>
+              <div class="selected-element-info">
+                <div class="element-header">
+                  <span class="element-tag">
+                    选中元素：{{ selectedElementInfo.tagName.toLowerCase() }}
+                  </span>
+                  <span v-if="selectedElementInfo.id" class="element-id">
+                    #{{ selectedElementInfo.id }}
+                  </span>
+                  <span v-if="selectedElementInfo.className" class="element-class">
+                    .{{ selectedElementInfo.className.split(' ').join('.') }}
+                  </span>
+                </div>
+                <div class="element-details">
+                  <div v-if="selectedElementInfo.textContent" class="element-item">
+                    内容: {{ selectedElementInfo.textContent.substring(0, 50) }}
+                    {{ selectedElementInfo.textContent.length > 50 ? '...' : '' }}
+                  </div>
+                  <div v-if="selectedElementInfo.pagePath" class="element-item">
+                    页面路径: {{ selectedElementInfo.pagePath }}
+                  </div>
+                  <div class="element-item">
+                    选择器:
+                    <code class="element-selector-code">{{ selectedElementInfo.selector }}</code>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </a-alert>
+
+          <!-- 用户消息输入框 -->
+          <div class="input-container">
+            <div class="input-wrapper">
+              <a-tooltip v-if="!isOwner" title="无法在别人的作品下对话哦~" placement="top">
+                <a-textarea
+                    v-model:value="userInput"
+                    :placeholder="getInputPlaceholder()"
+                    :rows="4"
+                    :maxlength="1000"
+                    @keydown.enter.prevent="sendMessage"
+                    :disabled="!isOwner"
+                />
+              </a-tooltip>
               <a-textarea
+                  v-else
                   v-model:value="userInput"
                   :placeholder="getInputPlaceholder()"
                   :rows="4"
                   :maxlength="1000"
                   @keydown.enter.prevent="sendMessage"
-                  :disabled="!isOwner"
               />
-            </a-tooltip>
-            <a-textarea
-                v-else
-                v-model:value="userInput"
-                :placeholder="getInputPlaceholder()"
-                :rows="4"
-                :maxlength="1000"
-                @keydown.enter.prevent="sendMessage"
-            />
-            <div class="input-actions">
-              <button
-                  class="send-btn"
-                  :class="{ 'is-loading': isGenerating }"
-                  :disabled="isGenerating || !isOwner"
-                  @click="sendMessage"
-              >
-                <a-spin v-if="isGenerating" size="small" class="send-btn-spin" />
-                <SendOutlined v-else />
-              </button>
+              <div class="input-actions">
+                <button
+                    class="send-btn"
+                    :class="{ 'is-loading': isGenerating }"
+                    :disabled="isGenerating || !isOwner"
+                    @click="sendMessage"
+                >
+                  <a-spin v-if="isGenerating" size="small" class="send-btn-spin" />
+                  <SendOutlined v-else />
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
-      <!-- 代码版本控制区域 -->
-      <div class="version-section">
-        <div class="panel-header">
-          <span class="panel-title">
-            <HistoryOutlined />
-            代码版本
-          </span>
-          <a-button type="text" size="small" @click="loadAppVersions" :loading="loadingVersions">
-            <template #icon>
-              <ReloadOutlined />
-            </template>
-          </a-button>
+      <!-- 中间面板：文件树+代码查看 / 版本列表 -->
+      <div class="code-panel">
+        <!-- 生成中：文件树 + 代码查看 -->
+        <div v-if="isGenerating" class="file-explorer">
+          <div class="panel-header">
+            <span class="panel-title">
+              <CodeOutlined />
+              实时文件
+            </span>
+          </div>
+          <template v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)" :key="'stream-mid'">
+            <div class="file-explorer-body">
+              <aside class="file-tree">
+                <div v-if="!streamMsg.streamInfo || streamMsg.streamInfo.fileNames.length === 0" class="file-tree-empty">
+                  <a-spin size="small" />
+                  <span>等待文件写入…</span>
+                </div>
+                <button
+                    v-for="fileName in (streamMsg.streamInfo?.fileNames || [])"
+                    :key="fileName"
+                    class="file-tree-item"
+                    :class="{ active: activeSourceFile === fileName }"
+                    type="button"
+                    @click="activeSourceFile = fileName"
+                >
+                  <FileTextOutlined class="file-tree-icon" />
+                  <span class="file-tree-name" :title="fileName">{{ fileName }}</span>
+                </button>
+              </aside>
+              <section class="code-viewer">
+                <div class="code-viewer-header">
+                  <span class="code-viewer-file">{{ activeSourceFile || '选择文件查看代码' }}</span>
+                </div>
+                <div v-if="!activeSourceFile" class="code-viewer-placeholder">
+                  <p>点击左侧文件名查看代码</p>
+                </div>
+                <div v-else-if="!currentSourceFile" class="code-viewer-generating">
+                  <a-spin size="small" />
+                  <p>代码生成中…</p>
+                </div>
+                <pre v-else class="code-viewer-content"><code>{{ currentSourceFile.content }}</code></pre>
+              </section>
+            </div>
+          </template>
+          <div v-if="messages.filter(m => m.streamInfo).length === 0" class="file-explorer-empty">
+            <a-spin size="small" />
+            <span>正在连接生成服务…</span>
+          </div>
         </div>
-        <div class="version-content">
-          <a-empty v-if="!loadingVersions && appVersions.length === 0" description="暂无代码版本" />
-          <a-spin v-else-if="loadingVersions && appVersions.length === 0" />
-          <div v-else class="version-list">
-            <button
-                v-for="versionItem in appVersions"
-                :key="versionItem.id || versionItem.version"
-                type="button"
-                class="version-item"
-                :class="{ active: selectedVersion === versionItem.version }"
-                @click="selectVersion(versionItem)"
-            >
-              <div class="version-row">
-                <span class="version-name">V{{ versionItem.version }}</span>
-                <a-tag v-if="versionItem.version === latestVersion" color="green">最新</a-tag>
-              </div>
-              <div class="version-meta">
-                {{ formatCodeGenType(versionItem.codeGenType || appInfo?.codeGenType) }}
-              </div>
-              <div class="version-time">{{ formatTime(versionItem.createTime) || '暂无时间' }}</div>
-              <div class="version-message">
-                {{ truncateText(versionItem.userMessage, 80) || '暂无生成提示' }}
-              </div>
-            </button>
+
+        <!-- 非生成中：版本列表 -->
+        <div v-else class="version-section">
+          <div class="panel-header">
+            <span class="panel-title">
+              <HistoryOutlined />
+              代码版本
+            </span>
+            <a-button type="text" size="small" @click="loadAppVersions" :loading="loadingVersions">
+              <template #icon>
+                <ReloadOutlined />
+              </template>
+            </a-button>
+          </div>
+          <div class="version-content">
+            <a-empty v-if="!loadingVersions && appVersions.length === 0" description="暂无代码版本" />
+            <a-spin v-else-if="loadingVersions && appVersions.length === 0" />
+            <div v-else class="version-list">
+              <button
+                  v-for="versionItem in appVersions"
+                  :key="versionItem.id || versionItem.version"
+                  type="button"
+                  class="version-item"
+                  :class="{ active: selectedVersion === versionItem.version }"
+                  @click="selectVersion(versionItem)"
+              >
+                <div class="version-row">
+                  <span class="version-name">V{{ versionItem.version }}</span>
+                  <a-tag v-if="versionItem.version === latestVersion" color="green">最新</a-tag>
+                </div>
+                <div class="version-meta">
+                  {{ formatCodeGenType(versionItem.codeGenType || appInfo?.codeGenType) }}
+                </div>
+                <div class="version-time">{{ formatTime(versionItem.createTime) || '暂无时间' }}</div>
+                <div class="version-message">
+                  {{ truncateText(versionItem.userMessage, 80) || '暂无生成提示' }}
+                </div>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -2800,7 +2852,7 @@ onUnmounted(() => {
 
 /* ===== 右侧预览区域 ===== */
 .preview-section {
-  flex: 3;
+  flex: 2.5;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -3062,6 +3114,346 @@ onUnmounted(() => {
   }
 
   .source-file-item {
+    flex: 0 0 180px;
+    border-right: 1px solid rgba(148, 163, 184, 0.16);
+    border-bottom: 0;
+  }
+}
+
+/* ===== 左侧步骤面板 ===== */
+.step-panel {
+  flex: 1.2;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ===== 中间代码面板 ===== */
+.code-panel {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ===== 步骤进度区域 ===== */
+.step-progress-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.step-current-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(20, 184, 166, 0.06));
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.step-current-action span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-current-action strong {
+  flex-shrink: 0;
+  color: var(--brand-600);
+  font-size: 12px;
+}
+
+.generation-steps-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+
+.generation-step-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border-left: 3px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0 6px 6px 0;
+  color: var(--text-3);
+  font-size: 13px;
+  transition:
+    border-color 0.2s,
+    background 0.2s,
+    color 0.2s;
+}
+
+.generation-step-item.done {
+  border-left-color: #22c55e;
+  color: #15803d;
+}
+
+.generation-step-item.active {
+  border-left-color: var(--brand-500);
+  background: rgba(14, 165, 233, 0.06);
+  color: var(--brand-600);
+  font-weight: 600;
+}
+
+.step-index {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-3);
+}
+
+.generation-step-item.done .step-index {
+  background: rgba(34, 197, 94, 0.16);
+  color: #15803d;
+}
+
+.generation-step-item.active .step-index {
+  background: rgba(14, 165, 233, 0.18);
+  color: var(--brand-600);
+}
+
+.step-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* ===== 精简对话容器 ===== */
+.chat-mini {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ===== 文件浏览器（生成中中间面板） ===== */
+.file-explorer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.file-explorer-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  overflow: hidden;
+  min-height: 0;
+}
+
+.file-tree {
+  min-width: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    color 0.2s;
+}
+
+.file-tree-item:hover {
+  background: rgba(14, 165, 233, 0.08);
+  color: var(--brand-600);
+}
+
+.file-tree-item.active {
+  background: var(--surface);
+  color: var(--brand-600);
+  font-weight: 700;
+}
+
+.file-tree-icon {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  font-size: 14px;
+}
+
+.file-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 12px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.code-viewer {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.code-viewer-header {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.code-viewer-file {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-viewer-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.code-viewer-placeholder p {
+  margin: 0;
+}
+
+.code-viewer-generating {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.code-viewer-generating p {
+  margin: 0;
+}
+
+.code-viewer-content {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  background: var(--surface);
+  color: #1f2937;
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.code-viewer-content code {
+  color: inherit;
+}
+
+.file-explorer-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* ===== 新增面板响应式 ===== */
+@media (max-width: 1024px) {
+  .step-panel,
+  .code-panel {
+    flex: none;
+    height: 60vh;
+  }
+
+  .code-panel {
+    min-width: 0;
+    height: auto;
+    max-height: 420px;
+  }
+
+  .file-explorer-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(320px, 1fr);
+  }
+
+  .file-tree {
+    display: flex;
+    max-height: 132px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  .file-tree-item {
     flex: 0 0 180px;
     border-right: 1px solid rgba(148, 163, 184, 0.16);
     border-bottom: 0;
