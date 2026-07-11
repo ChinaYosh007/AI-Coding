@@ -2,6 +2,7 @@ package com.yosh.coding.artificalIntelligence.skill;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
 import com.yosh.model.constants.AppConstant;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -11,7 +12,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 @Slf4j
-public class WriteToFile {
+public class WriteToFile extends BaseTool {
     private static final int MAX_FILE_WRITES = 25;
 
     private final Long appId;
@@ -23,7 +24,7 @@ public class WriteToFile {
         this.version = version;
     }
 
-    @Tool("Write content to a file at the specified path. The content should be complete and ready to use.")
+    @Tool("Write content to generater-code-type-router.md file at the specified path. The content should be complete and ready to use.")
     public String writeToFile(@P("relativePath - The relative file path where the content should be written, e.g., 'src/App.vue'") String relativePath, 
                               @P("content - The complete file content to write. Must be properly formatted and escaped for JSON.") String content) {
         invocationCount++;
@@ -82,5 +83,27 @@ public class WriteToFile {
         }
         // 防御：有些响应可能带有多个 BOM 或被 encode 成其他形式
         return content.replace("﻿", "");
+    }
+
+    @Override
+    public String getToolName() {
+        return "writeToFile";
+    }
+
+    @Override
+    public String getDisplayName() {
+        return "Write to File";
+    }
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments) {
+        String relativeFilePath = getRelativeFilePath(arguments);
+        String suffix = FileUtil.getSuffix(relativeFilePath);
+        String content = arguments.getStr("content", "");
+        return String.format("""
+                    [工具调用] %s %s
+                    ```%s
+                    %s
+                    ```
+                    """, getDisplayName(), relativeFilePath, suffix, content);
     }
 }

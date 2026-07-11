@@ -78,7 +78,11 @@ public class AppController {
         app.setAppName(appName.length() > 32 ? appName.substring(0, 32) : appName);
 
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(appAddRequest.getCodeGenType());
-        ThrowUtils.throwIf(codeGenTypeEnum == null, ErrorCode.PARAMS_ERROR, "代码生成类型不支持");
+
+        if(codeGenTypeEnum == null || codeGenTypeEnum.getValue() == CodeGenTypeEnum.AUTO.getValue()){
+            //调用生成路由
+            codeGenTypeEnum = appService.generateRoute(appAddRequest.getInitPrompt());
+        }
         app.setCodeGenType(codeGenTypeEnum.getValue());
         // 插入数据库
         boolean result = appService.save(app);

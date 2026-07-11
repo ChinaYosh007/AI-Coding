@@ -4,6 +4,7 @@ import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClientBuilder;
 import com.aliyun.oss.model.ObjectMetadata;
 import com.yosh.common.OssEntry;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.Thumbnails;
 import net.coobird.thumbnailator.filters.Canvas;
@@ -36,7 +37,7 @@ public class ScreenshotUtil {
 
     private static ChromeDriver initChrome() {
         ChromeOptions chrome = new ChromeOptions();
-        chrome.addArguments("--headless=new", "--disable-gpu", "--no-sandbox");
+        chrome.addArguments("--headless", "--disable-gpu", "--no-sandbox");
         chrome.addArguments("--window-size=" + VIEWPORT_WIDTH + "," + VIEWPORT_HEIGHT);
         chrome.addArguments("--disable-infobars", "--disable-extensions");
         chrome.setExperimentalOption("excludeSwitches", List.of("enable-automation"));
@@ -56,6 +57,7 @@ public class ScreenshotUtil {
         }
         return driver;
     }
+    @PreDestroy
     public static void destroy() {
         ChromeDriver driver = threadLocal.get();
         if (driver != null) {
