@@ -1,5 +1,7 @@
 package com.yosh.coding.config;
 
+import com.aliyun.oss.OSS;
+import com.aliyun.oss.OSSClientBuilder;
 import com.yosh.common.OssEntry;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -23,5 +25,9 @@ public class AliOssConfig {
                         .accessKeySecret(accessKeySecret)
                         .bucketName(bucketName)
                         .build();
+    }
+    @Bean(destroyMethod = "shutdown")
+    public OSS ossClient() {
+        return new OSSClientBuilder().build(endpoint, accessKeyId, accessKeySecret);
     }
 }

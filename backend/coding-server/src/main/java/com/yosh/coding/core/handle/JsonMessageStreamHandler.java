@@ -57,7 +57,8 @@ public class JsonMessageStreamHandler {
     public Flux<String> handle(Flux<String> originFlux,
                                ChatHistoryService chatHistoryService,
                                long appId, long version,
-                               LoginUserVO loginUser) {
+                               LoginUserVO loginUser,
+                               com.yosh.model.enums.CodeGenTypeEnum codeGenType) {
         // 收集数据用于生成后端记忆格式
         StringBuilder chatHistoryStringBuilder = new StringBuilder();
         // 用于跟踪已经见过的工具ID，判断是否是第一次调用
@@ -82,6 +83,9 @@ public class JsonMessageStreamHandler {
                 // 在流末尾追加开发服务器 URL
                 .concatWith(Mono.fromCallable(() -> {
                     try {
+                        if (codeGenType != com.yosh.model.enums.CodeGenTypeEnum.VUE_PROJECT) {
+                            return "";
+                        }
                         String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator
                                 + AppConstant.VUE_PREFIX + appId + "_" + version;
                         File projectDir = new File(projectPath);

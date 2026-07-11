@@ -332,12 +332,37 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         // 预占版本号：先生成一条 version 记录并拿到版本号，保证后续文件保存路径与 DB 一致
         AppVersion newVersion = reserveAppVersion(appId, msg, app.getCodeGenType());
         Long version = newVersion.getVersion();
+        boolean isModify = version > 1L;
+
+        if (isModify) {
+            AppVersion oldVersion = appVersionService.getByAppIdAndVersion(appId, version - 1);
+            if (oldVersion != null && StrUtil.isNotBlank(oldVersion.getSourcePath())) {
+                File oldDir = new File(oldVersion.getSourcePath());
+                File newDir = new File(newVersion.getSourcePath());
+                if (oldDir.exists() && oldDir.isDirectory()) {
+                    File[] files = oldDir.listFiles();
+                    if (files != null) {
+                        for (File file : files) {
+                            if ("node_modules".equals(file.getName())) {
+                                continue;
+                            }
+                            File target = new File(newDir, file.getName());
+                            if (file.isDirectory()) {
+                                cn.hutool.core.io.FileUtil.copyContent(file, target, true);
+                            } else {
+                                cn.hutool.core.io.FileUtil.copy(file, target, true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // 保存生成结果
         chatHistoryService.addChatHistory(appId, loginUser.getId(), msg, MessageTypeEnum.USER.getValue());
         // generate and save code（使用预占的版本号，文件将存到与 DB sourcePath 一致的目录）
-        Flux<String> stringFlux = aiCodeGeneratorFacade.generateAndSaveCodeStream(msg, codeGenTypeEnum, appId, version);
-        return streamHandlerExecutor.doExecute(stringFlux, chatHistoryService, appId, version, loginUser, codeGenTypeEnum);
+        Flux<String> stringFlux = aiCodeGeneratorFacade.generateAndSaveCodeStream(msg, codeGenTypeEnum, appId, version, isModify);
+        return streamHandlerExecutor.doExecute(stringFlux, chatHistoryService, appId, version, loginUser, codeGenTypeEnum, isModify);
 
     }
 

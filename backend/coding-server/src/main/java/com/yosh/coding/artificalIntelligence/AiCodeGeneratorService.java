@@ -36,6 +36,12 @@ public interface AiCodeGeneratorService {
     @SystemMessage(fromResource = "prompt/code-multi-file-html.md")
     Flux<String> generateMultiFileCodeStream(@MemoryId Long memoryId, @UserMessage String userMessage);
 
+    @SystemMessage(fromResource = "prompt/html-modify.md")
+    TokenStream generateMultiFileCodeModifyStream(@MemoryId Long appId, @UserMessage String userMessage);
+
+    @SystemMessage(fromResource = "prompt/html-modify.md")
+    TokenStream generateHtmlCodeModifyStream(@MemoryId Long appId, @UserMessage String userMessage);
+
     @SystemMessage("根据初始化提示生成6个字应用名称，以JSON格式返回，例如：{\"appName\": \"示例应用\"}")
     String generateAppName(String initPrompt);
     @SystemMessage("总结应用聊天历史记录，以JSON格式返回，例如：{\"summary\": \"用户询问了如何创建一个TODO应用，开发人员提供了详细步骤和代码示例。\"}")
@@ -45,4 +51,7 @@ public interface AiCodeGeneratorService {
 
     @SystemMessage(fromResource = "prompt/vue-multi-file-html.md")
     TokenStream generateVueCodeStream(@MemoryId Long appId, @UserMessage String userMessage);
+
+    @SystemMessage(fromResource = "prompt/vue-modify-file.md")
+    TokenStream generateVueCodeModifyStream(@MemoryId Long appId, @UserMessage String userMessage);
 }

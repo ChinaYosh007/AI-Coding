@@ -53,6 +53,8 @@ public class AppController {
     private AppService appService;
     @Autowired
     private UserService userService;
+    @Autowired
+    private com.yosh.coding.service.AppVersionService appVersionService;
 
     /**
      * 创建应用
@@ -412,5 +414,32 @@ public class AppController {
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"app-" + appId + ".zip\"")
                 .body(resource);
+    }
+    @PostMapping("/{appId}/version/{version}/save-file")
+    public BaseResponse<Boolean> saveAppFile(@PathVariable Long appId,
+                                             @PathVariable Long version,
+                                             @RequestBody AppSaveFileRequest requestBody,
+                                             HttpServletRequest request) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(version == null || version <= 0, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(requestBody == null || StrUtil.isBlank(requestBody.getFilePath()), ErrorCode.PARAMS_ERROR);
+
+        LoginUserVO loginUser = userService.getLoginUser(request);
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
+        if (!app.getUserId().equals(loginUser.getId()) && !UserContants.ADMIN_ROLE.equals(loginUser.getUserRole())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+
+        com.yosh.model.entity.AppVersion appVersion = appVersionService.getByAppIdAndVersion(appId, version);
+        ThrowUtils.throwIf(appVersion == null, ErrorCode.NOT_FOUND_ERROR);
+
+        String sourcePath = appVersion.getSourcePath();
+        ThrowUtils.throwIf(StrUtil.isBlank(sourcePath), ErrorCode.NOT_FOUND_ERROR);
+
+        File targetFile = new File(sourcePath, requestBody.getFilePath());
+        cn.hutool.core.io.FileUtil.writeUtf8String(requestBody.getContent() == null ? "" : requestBody.getContent(), targetFile);
+
+        return ResultUtils.success(true);
     }
 }

@@ -39,14 +39,19 @@ public class StreamHandlerExecutor {
     public Flux<String> doExecute(Flux<String> originFlux,
                                   ChatHistoryService chatHistoryService,
                                   long appId, long version,
-                                  LoginUserVO loginUser, CodeGenTypeEnum codeGenType) {
-        return switch (codeGenType) {
-            case VUE_PROJECT -> // 使用注入的组件实例
-                    jsonMessageStreamHandler.handle(originFlux, chatHistoryService, appId, version, loginUser);
-            case AUTO -> null;//不会存在
-            case HTML, MULTI_FILE -> // 简单文本处理器不需要依赖注入
-                    new SimpleTextStreamHandler(appVersionService)
-                            .handle(originFlux, chatHistoryService, appId, version, loginUser);
-        };
+                                  LoginUserVO loginUser, CodeGenTypeEnum codeGenType, boolean isModify) {
+        if (codeGenType == CodeGenTypeEnum.VUE_PROJECT) {
+            return jsonMessageStreamHandler.handle(originFlux, chatHistoryService, appId, version, loginUser, codeGenType);
+        } else if (codeGenType == CodeGenTypeEnum.AUTO) {
+            return null;
+        } else {
+            // HTML, MULTI_FILE
+            if (isModify) {
+                return jsonMessageStreamHandler.handle(originFlux, chatHistoryService, appId, version, loginUser, codeGenType);
+            } else {
+                return new SimpleTextStreamHandler(appVersionService)
+                        .handle(originFlux, chatHistoryService, appId, version, loginUser);
+            }
+        }
     }
 }

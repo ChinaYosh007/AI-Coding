@@ -28,8 +28,8 @@ public class AiCodeGeneratorFacadeTest {
     @Test
     public void chatWithSaverStream(){
         Long appId = 1L;
-        Flux<String> file = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, CodeGenTypeEnum.HTML,appId,1L);
-        file.doOnNext(System.out::print)
+        Flux<String> stream = aiCodeGeneratorFacade.generateAndSaveCodeStream("test message", CodeGenTypeEnum.VUE_PROJECT, 1L, 1L, false);
+        stream.doOnNext(System.out::print)
                 .doOnComplete(()-> System.out.println("success")).blockLast();
 
 
