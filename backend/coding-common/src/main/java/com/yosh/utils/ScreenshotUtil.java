@@ -40,6 +40,7 @@ public class ScreenshotUtil {
         chrome.addArguments("--window-size=" + VIEWPORT_WIDTH + "," + VIEWPORT_HEIGHT);
         chrome.addArguments("--disable-infobars", "--disable-extensions");
         chrome.setExperimentalOption("excludeSwitches", List.of("enable-automation"));
+        chrome.addArguments("--window-position=-32000,-32000");
 
         ChromeDriverService service = new ChromeDriverService.Builder()
                 .withSilent(true)
@@ -144,7 +145,9 @@ public class ScreenshotUtil {
                     new ByteArrayInputStream(compressed),
                     metadata
             );
-            return fileName;
+            String url = "https://" + ossEntry.getBucketName() + "." + ossEntry.getEndpoint() + "/" + fileName;
+            return url;
+
         } catch (Exception e) {
             log.error("Failed to save screenshot to OSS", e);
             throw new IOException("Failed to save screenshot to OSS", e);
