@@ -247,17 +247,17 @@
           <template v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)" :key="'stream-mid'">
             <div class="file-explorer-body">
               <aside class="file-tree">
-                <div v-if="!streamMsg.streamInfo || streamMsg.streamInfo.fileNames.length === 0" class="file-tree-empty">
+                <div v-if="liveFiles.length === 0" class="file-tree-empty">
                   <a-spin size="small" />
                   <span>等待文件写入…</span>
                 </div>
                 <button
-                    v-for="fileName in (streamMsg.streamInfo?.fileNames || [])"
+                    v-for="fileName in liveFiles"
                     :key="fileName"
                     class="file-tree-item"
-                    :class="{ active: activeSourceFile === fileName }"
+                    :class="{ active: activeLiveFile === fileName }"
                     type="button"
-                    @click="activeSourceFile = fileName"
+                    @click="activeLiveFile = fileName"
                 >
                   <FileTextOutlined class="file-tree-icon" />
                   <span class="file-tree-name" :title="fileName">{{ fileName }}</span>
@@ -265,16 +265,16 @@
               </aside>
               <section class="code-viewer">
                 <div class="code-viewer-header">
-                  <span class="code-viewer-file">{{ activeSourceFile || '选择文件查看代码' }}</span>
+                  <span class="code-viewer-file">{{ currentLiveFile?.name || '选择文件查看代码' }}</span>
                 </div>
-                <div v-if="!activeSourceFile" class="code-viewer-placeholder">
-                  <p>点击左侧文件名查看代码</p>
+                <div v-if="!currentLiveFile" class="code-viewer-placeholder">
+                  <p>AI 正在生成代码，请稍候…</p>
                 </div>
-                <div v-else-if="!currentSourceFile" class="code-viewer-generating">
+                <div v-else-if="!currentLiveFile.content" class="code-viewer-generating">
                   <a-spin size="small" />
                   <p>代码生成中…</p>
                 </div>
-                <pre v-else class="code-viewer-content"><code>{{ currentSourceFile.content }}</code></pre>
+                <pre v-else class="code-viewer-content"><code>{{ currentLiveFile.content }}</code></pre>
               </section>
             </div>
           </template>
@@ -717,6 +717,11 @@ const sourceLoading = ref(false)
 const sourceFiles = ref<SourceFile[]>([])
 const activeSourceFile = ref('')
 
+// 实时代码展示（生成中）
+const liveCode = ref('')
+const liveFiles = ref<string[]>([])
+const activeLiveFile = ref('')
+
 // 智能记忆相关
 const memoryModalVisible = ref(false)
 const memoryLoading = ref(false)
@@ -770,6 +775,13 @@ const selectedVersionRecord = computed(() => {
 
 const currentSourceFile = computed(() => {
   return sourceFiles.value.find((file) => file.name === activeSourceFile.value)
+})
+
+// 实时代码：优先从 liveFiles 取文件名，代码内容直接用 liveCode
+const currentLiveFile = computed(() => {
+  const name = activeLiveFile.value || liveFiles.value[0]
+  if (!name) return null
+  return { name, content: liveCode.value }
 })
 
 // 应用详情相关
@@ -1165,6 +1177,20 @@ const formatMessageTime = (time?: string) => {
   return formatted || '刚刚'
 }
 
+// 从 AI 文本流中提取指定代码块（html/css/js）
+const extractCodeBlock = (text: string, fileName: string): string => {
+  if (!text) return ''
+  const lang = fileName.endsWith('.css') ? 'css'
+    : fileName.endsWith('.js') ? 'javascript'
+    : 'html'
+  const regex = new RegExp('```' + lang + '\\s*\\n([\\s\\S]*?)```', 'i')
+  const match = text.match(regex)
+  if (match) return match[1].trim()
+  // 如果是 html 且没找到代码块，直接返回原文（可能就是 HTML）
+  if (lang === 'html' && text.includes('<') && text.includes('>')) return text.trim()
+  return ''
+}
+
 const formatGeneratedSize = (totalChars: number) => {
   if (totalChars >= 1000) {
     return `${(totalChars / 1000).toFixed(1)}k 字符`
@@ -1558,6 +1584,11 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
   let pendingFile = ''
   let devServerUrl = ''
 
+  // 重置实时代码展示
+  liveCode.value = ''
+  liveFiles.value = []
+  activeLiveFile.value = ''
+
   try {
     const baseURL = request.defaults.baseURL || API_BASE_URL
     const params = new URLSearchParams({
@@ -1586,6 +1617,26 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
             : '正在生成代码',
         fileNames: writtenFiles.slice(-4),
         updatedAt: new Date().toISOString(),
+      }
+
+      // 实时代码：更新 liveCode 和 liveFiles 供中间面板显示
+      liveCode.value = aiText
+      if (writtenFiles.length > 0) {
+        // Vue 模式：有工具调用写入的文件
+        liveFiles.value = writtenFiles
+      } else if (aiText.length > 100) {
+        // HTML/多文件模式：AI 文本流就是代码，创建虚拟文件
+        const codeGenType = appInfo.value?.codeGenType
+        if (codeGenType === 'multi_file') {
+          liveFiles.value = ['index.html', 'style.css', 'script.js'].filter(f => extractCodeBlock(aiText, f))
+          if (liveFiles.value.length === 0) liveFiles.value = ['index.html']
+        } else {
+          liveFiles.value = ['index.html']
+        }
+        // 按 activeLiveFile 提取对应代码块
+        if (activeLiveFile.value && liveFiles.value.includes(activeLiveFile.value)) {
+          liveCode.value = extractCodeBlock(aiText, activeLiveFile.value) || aiText
+        }
       }
 
       msg.content = buildGenerationStatusMessage(
