@@ -9,13 +9,13 @@ import org.springframework.context.annotation.Configuration;
 //从yml拿
 
 @ConfigurationProperties(prefix = "oss")
-public class OssConfig {
+public class AliOssConfig {
     private String endpoint;
     private String accessKeyId;
     private String accessKeySecret;
     private String bucketName;
     @Bean
-    public OssEntry ossConfig() {
+    public OssEntry AliOssConfig() {
         return OssEntry.builder()
                         .endpoint(endpoint)
                         .accessKeyId(accessKeyId)
