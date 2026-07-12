@@ -49,4 +49,21 @@ public class UploadController {
         String imageUrl = ossUploadService.uploadImage(file);
         return ResultUtils.success(imageUrl);
     }
+
+    /**
+     * 上传文件到阿里云 OSS（支持 PDF、文档等任意类型）
+     */
+    @PostMapping(value = "/upload-file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public BaseResponse<String> uploadFile(@RequestPart("file") MultipartFile file,
+                                          HttpServletRequest request) {
+        userService.getLoginUser(request);
+        ThrowUtils.throwIf(file == null || file.isEmpty(),
+                ErrorCode.PARAMS_ERROR, "请选择需要上传的文件");
+        long maxFileSize = 10 * 1024 * 1024L;
+        ThrowUtils.throwIf(file.getSize() > maxFileSize,
+                ErrorCode.PARAMS_ERROR, "文件大小不能超过 10MB");
+
+        String fileUrl = ossUploadService.uploadFile(file);
+        return ResultUtils.success(fileUrl);
+    }
 }

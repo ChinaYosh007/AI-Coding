@@ -140,10 +140,14 @@ export async function getAppChatHistoryMemory(appId: string, options?: { [key: s
 /** 总结某个应用的智能记忆 POST /app/{appId}/memory/summarize */
 export async function summarizeAppChatHistoryMemory(
   appId: string,
+  version: number,
   options?: { [key: string]: any }
 ) {
   return request<API.BaseResponseVoid>(`/app/${appId}/memory/summarize`, {
     method: 'POST',
+    params: {
+      version,
+    },
     ...(options || {}),
   })
 }

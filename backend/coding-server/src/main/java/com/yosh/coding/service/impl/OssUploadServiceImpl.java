@@ -50,6 +50,50 @@ public class OssUploadServiceImpl implements OssUploadService {
         }
     }
 
+    @Override
+    public String uploadFile(MultipartFile file) {
+        String originalFilename = file.getOriginalFilename();
+        String extension = extractExtension(originalFilename);
+
+        String objectName = buildFileObjectName(extension);
+        ObjectMetadata metadata = new ObjectMetadata();
+        String contentType = file.getContentType();
+        if (contentType != null) {
+            metadata.setContentType(contentType);
+        }
+        metadata.setContentLength(file.getSize());
+        metadata.setContentDisposition("attachment; filename=\"" + originalFilename + "\"");
+
+        try (InputStream inputStream = file.getInputStream()) {
+            ossClient.putObject(ossEntry.getBucketName(), objectName, inputStream, metadata);
+            return buildUrl(objectName);
+        } catch (IOException e) {
+            log.error("读取上传文件失败", e);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "读取上传文件失败");
+        } catch (Exception e) {
+            log.error("上传文件到 OSS 失败", e);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "文件上传失败");
+        }
+    }
+
+    private String extractExtension(String filename) {
+        if (filename == null || !filename.contains(".")) {
+            return "bin";
+        }
+        return filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
+    }
+
+    private String buildFileObjectName(String extension) {
+        LocalDate today = LocalDate.now();
+        return "user-files/%d/%02d/%02d/%s.%s".formatted(
+                today.getYear(),
+                today.getMonthValue(),
+                today.getDayOfMonth(),
+                UUID.randomUUID(),
+                extension
+        );
+    }
+
     private String buildObjectName(String contentType) {
         String extension = switch (contentType) {
             case "image/jpeg" -> "jpg";
