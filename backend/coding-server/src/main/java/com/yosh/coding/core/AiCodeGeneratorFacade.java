@@ -61,7 +61,6 @@ public class AiCodeGeneratorFacade {
     private ChatModel chatModel;
     @Resource
     private VueProjectInitializer vueProjectInitializer;
-    @Resource
     /**
      * 缓存内部
      * @param appId
@@ -92,7 +91,7 @@ public class AiCodeGeneratorFacade {
                 new ReadProjectDir(appId, version)
         );
     }
-    public AiCodeGeneratorService createAiCodeGeneratorService(long appId, long version,CodeGenTypeEnum type) {
+    public AiCodeGeneratorService createAiCodeGeneratorService(long appId, long version,CodeGenTypeEnum type, boolean isModify) {
         // 清理旧缓存
         redisChatMemoryStore.deleteMessages(appId);
         MessageWindowChatMemory messageWindowChatMemory = MessageWindowChatMemory
@@ -117,12 +116,16 @@ public class AiCodeGeneratorFacade {
                 yield build;
             }
             case HTML, MULTI_FILE -> {
-                AiCodeGeneratorService build = AiServices.builder(AiCodeGeneratorService.class)
+                var builder = AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(chatModel)
                         .streamingChatModel(openAiStreamingChatModel)
-                        .chatMemoryProvider(id -> messageWindowChatMemory)
-                        .build();
-                yield build;
+                        .chatMemoryProvider(id -> messageWindowChatMemory);
+                if (isModify) {
+                    builder.tools(loadSkill(appId, version))
+                           .hallucinatedToolNameStrategy((request) -> dev.langchain4j.data.message.ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
+                           .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS);
+                }
+                yield builder.build();
 
             }
             default -> throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的生成类型:" + type.getValue());
@@ -133,14 +136,14 @@ public class AiCodeGeneratorFacade {
 
 
     public  AiCodeGeneratorService getAiCodeGeneratorService(Long appId,Long version){
-        return this.getAiCodeGeneratorService(appId, version, CodeGenTypeEnum.HTML);
+        return this.getAiCodeGeneratorService(appId, version, CodeGenTypeEnum.HTML, false);
     }
-    public  AiCodeGeneratorService getAiCodeGeneratorService(Long appId, Long version, CodeGenTypeEnum type) {
-        String cacheKey = buildCacheKey(appId, version, type);
-        return serviceCache.get(cacheKey, k -> createAiCodeGeneratorService(appId, version, type));
+    public  AiCodeGeneratorService getAiCodeGeneratorService(Long appId, Long version, CodeGenTypeEnum type, boolean isModify) {
+        String cacheKey = buildCacheKey(appId, version, type, isModify);
+        return serviceCache.get(cacheKey, k -> createAiCodeGeneratorService(appId, version, type, isModify));
     }
-    public String buildCacheKey(Long appId, Long version, CodeGenTypeEnum type) {
-        return appId + ":" + version + ":" + type;
+    public String buildCacheKey(Long appId, Long version, CodeGenTypeEnum type, boolean isModify) {
+        return appId + ":" + version + ":" + type + ":" + isModify;
     }
 
     public Flux<String> processCodeStream(Flux<String> flux,CodeGenTypeEnum type,Long appId,Long version){
@@ -230,7 +233,7 @@ public class AiCodeGeneratorFacade {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
-        AiCodeGeneratorService service = getAiCodeGeneratorService(appId, version, codeGenTypeEnum);
+        AiCodeGeneratorService service = getAiCodeGeneratorService(appId, version, codeGenTypeEnum, false);
         return switch (codeGenTypeEnum) {
             case HTML -> {
 
@@ -248,12 +251,12 @@ public class AiCodeGeneratorFacade {
             }
         };
     }
-    public Flux<String> generateAndSaveCodeStream(String userMessage, CodeGenTypeEnum codeGenTypeEnum, Long appId, Long version) {
+    public Flux<String> generateAndSaveCodeStream(String userMessage, CodeGenTypeEnum codeGenTypeEnum, Long appId, Long version, boolean isModify) {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
 
-        AiCodeGeneratorService service = getAiCodeGeneratorService(appId, version, codeGenTypeEnum);
+        AiCodeGeneratorService service = getAiCodeGeneratorService(appId, version, codeGenTypeEnum, isModify);
         //记忆存入redis
 
         return switch (codeGenTypeEnum) {
@@ -262,18 +265,20 @@ public class AiCodeGeneratorFacade {
 
                 // 阶段一：同步复制模板文件（<1 秒），确保 AI 生成代码前模板已就位
                 // 同步避免了与 WriteToFile 工具的竞态条件（初始化需删除旧目录再重建）
-                try {
-                    log.info("开始复制 Vue 模板: {}", projectPath);
-                    boolean copied = vueProjectInitializer.copyTemplate(projectPath);
-                    if (!copied) {
-                        throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Vue 模板复制失败");
+                if (!isModify) {
+                    try {
+                        log.info("开始复制 Vue 模板: {}", projectPath);
+                        boolean copied = vueProjectInitializer.copyTemplate(projectPath);
+                        if (!copied) {
+                            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Vue 模板复制失败");
+                        }
+                        log.info("Vue 模板复制完成: {}", projectPath);
+                    } catch (BusinessException e) {
+                        throw e;
+                    } catch (Exception e) {
+                        log.error("Vue 模板复制失败: {}", e.getMessage(), e);
+                        throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Vue 模板复制失败: " + e.getMessage());
                     }
-                    log.info("Vue 模板复制完成: {}", projectPath);
-                } catch (BusinessException e) {
-                    throw e;
-                } catch (Exception e) {
-                    log.error("Vue 模板复制失败: {}", e.getMessage(), e);
-                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Vue 模板复制失败: " + e.getMessage());
                 }
 
                 // 阶段二：异步安装 npm 依赖（~30 秒），不阻塞 AI 代码生成
@@ -286,16 +291,26 @@ public class AiCodeGeneratorFacade {
                     }
                 });
 
-                TokenStream tokenStream = service.generateVueCodeStream(appId, userMessage);
+                TokenStream tokenStream = isModify ? service.generateVueCodeModifyStream(appId, userMessage) : service.generateVueCodeStream(appId, userMessage);
                 yield processTokenStream(tokenStream);
             }
             case HTML -> {
-                Flux<String> flux = service.generateHtmlCodeStream(appId,userMessage);
-                yield processCodeStream(flux,CodeGenTypeEnum.HTML,appId,version);
+                if (isModify) {
+                    TokenStream tokenStream = service.generateHtmlCodeModifyStream(appId, userMessage);
+                    yield processTokenStream(tokenStream);
+                } else {
+                    Flux<String> flux = service.generateHtmlCodeStream(appId,userMessage);
+                    yield processCodeStream(flux,CodeGenTypeEnum.HTML,appId,version);
+                }
             }
             case MULTI_FILE -> {
-                Flux<String> flux = service.generateMultiFileCodeStream(appId,userMessage);
-                yield processCodeStream(flux,CodeGenTypeEnum.MULTI_FILE,appId,version);
+                if (isModify) {
+                    TokenStream tokenStream = service.generateMultiFileCodeModifyStream(appId, userMessage);
+                    yield processTokenStream(tokenStream);
+                } else {
+                    Flux<String> flux = service.generateMultiFileCodeStream(appId,userMessage);
+                    yield processCodeStream(flux,CodeGenTypeEnum.MULTI_FILE,appId,version);
+                }
             }
             default -> {
                 String errorMessage = "不支持的生成类型:" + codeGenTypeEnum.getValue();
@@ -321,7 +336,7 @@ public class AiCodeGeneratorFacade {
 
         redisChatMemoryStore.deleteMessages(appId);
         //清理 caffeine
-        String key = buildCacheKey(appId, version, type);
+        String key = buildCacheKey(appId, version, type, false);
         serviceCache.invalidate(key);
     }
 }

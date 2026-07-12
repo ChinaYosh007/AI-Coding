@@ -10,6 +10,8 @@
         <span v-if="appInfo?.codeGenType" class="code-gen-type-tag">
           {{ formatCodeGenType(appInfo.codeGenType) }}
         </span>
+        <span v-if="isModifyMode" class="mode-tag mode-modify">修改模式</span>
+        <span v-else class="mode-tag mode-create">创建模式</span>
       </div>
       <div class="header-right">
         <a-button type="text" class="header-btn" @click="showAppDetail">
@@ -180,7 +182,23 @@
 
           <!-- 用户消息输入框 -->
           <div class="input-container">
+            <!-- 已上传图片预览区 -->
+            <div v-if="uploadedImages.length > 0" class="uploaded-images-preview">
+              <div v-for="(img, idx) in uploadedImages" :key="idx" class="uploaded-image-item">
+                <img :src="img.url" :alt="img.name" class="uploaded-image-thumb" />
+                <button class="uploaded-image-remove" @click="removeUploadedImage(idx)">×</button>
+              </div>
+            </div>
             <div class="input-wrapper">
+              <!-- 扩展项4：隐藏的文件上传 input -->
+              <input
+                  ref="fileInputRef"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  style="display: none"
+                  @change="handleImageUpload"
+              />
               <a-tooltip v-if="!isOwner" title="无法在别人的作品下对话哦~" placement="top">
                 <a-textarea
                     v-model:value="userInput"
@@ -200,6 +218,17 @@
                   @keydown.enter.prevent="sendMessage"
               />
               <div class="input-actions">
+                <!-- 扩展项4：图片上传按钮 -->
+                <button
+                    v-if="isOwner"
+                    class="upload-btn"
+                    :disabled="imageUploading || isGenerating"
+                    @click="triggerFileUpload"
+                    title="上传图片"
+                >
+                  <a-spin v-if="imageUploading" size="small" />
+                  <PictureOutlined v-else />
+                </button>
                 <button
                     class="send-btn"
                     :class="{ 'is-loading': isGenerating }"
@@ -215,7 +244,7 @@
         </div>
       </div>
       <!-- 中间面板：仅生成中显示文件树+代码查看 -->
-      <div v-show="isGenerating" class="code-panel">
+      <div class="code-panel">
         <!-- 生成中：文件树 + 代码查看 -->
         <div v-if="isGenerating" class="file-explorer">
           <div class="panel-header">
@@ -324,6 +353,34 @@
                 <EditOutlined />
               </template>
               {{ isEditMode ? '退出编辑' : '编辑模式' }}
+            </a-button>
+            <!-- 扩展项5：内联编辑 -->
+            <a-button
+                v-if="previewUrl && isOwner && appInfo?.codeGenType !== 'vue_project'"
+                type="text"
+                size="small"
+                class="preview-action-btn"
+                :class="{ 'edit-mode-active': inlineEditing }"
+                :disabled="inlineSaving"
+                @click="toggleInlineEdit"
+            >
+              <template #icon>
+                <FormOutlined />
+              </template>
+              {{ inlineEditing ? '退出内联编辑' : '内联编辑' }}
+            </a-button>
+            <a-button
+                v-if="inlineEditing"
+                type="text"
+                size="small"
+                class="preview-action-btn"
+                :loading="inlineSaving"
+                @click="saveInlineEdit"
+            >
+              <template #icon>
+                <SaveOutlined />
+              </template>
+              保存
             </a-button>
             <a-button
                 v-if="previewUrl"
@@ -578,6 +635,9 @@ import {
   DatabaseOutlined,
   TeamOutlined,
   UserAddOutlined,
+  PictureOutlined,
+  FormOutlined,
+  SaveOutlined,
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -705,6 +765,18 @@ const visualEditor = new VisualEditor({
     selectedElementInfo.value = elementInfo
   },
 })
+
+// 扩展项1：创建/修改模式
+const isModifyMode = computed(() => appVersions.value.length > 0)
+
+// 扩展项4：图片上传相关
+const uploadedImages = ref<{ url: string; name: string }[]>([])
+const imageUploading = ref(false)
+const fileInputRef = ref<HTMLInputElement>()
+
+// 扩展项5：内联编辑保存
+const inlineEditing = ref(false)
+const inlineSaving = ref(false)
 
 // 权限相关
 const isOwner = computed(() => {
@@ -1502,6 +1574,12 @@ const sendMessage = async () => {
   }
 
   let message = userInput.value.trim()
+  // 扩展项4：将上传的图片 URL 拼接到消息中
+  if (uploadedImages.value.length > 0) {
+    const imageUrls = uploadedImages.value.map(img => img.url)
+    message += `\n\n参考图片：\n${imageUrls.map(url => `- ${url}`).join('\n')}`
+    uploadedImages.value = []
+  }
   // 如果有选中的元素，将元素信息添加到提示词中
   if (selectedElementInfo.value) {
     let elementContext = `\n\n选中元素信息：`
@@ -1873,7 +1951,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
             if (parsed.fileContent) {
               fileContentMap.value.set(filePath, parsed.fileContent)
               fileContentMap.value = new Map(fileContentMap.value)
-            } else if (!fileContentMap.value.has(filePath)) {
+            } else {
               // 后端可能已将文件写入磁盘，从 API 拉取内容
               fetchLiveFileContent(filePath)
             }
@@ -2186,7 +2264,120 @@ const getInputPlaceholder = () => {
   if (selectedElementInfo.value) {
     return `正在编辑 ${selectedElementInfo.value.tagName.toLowerCase()} 元素，描述您想要的修改...`
   }
+  const isModifyMode = appVersions.value.length > 0
+  if (isModifyMode) {
+    return '描述你想要的修改，比如「把首页标题改成XX」「添加一个轮播图」'
+  }
   return '请描述你想生成的网站，越详细效果越好哦'
+}
+
+// 扩展项4：图片上传
+const handleImageUpload = async (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const files = target.files
+  if (!files || files.length === 0) return
+
+  imageUploading.value = true
+  try {
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/')) {
+        message.warning(`${file.name} 不是图片文件`)
+        continue
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        message.warning(`${file.name} 超过 5MB 限制`)
+        continue
+      }
+      const formData = new FormData()
+      formData.append('file', file)
+      const baseURL = request.defaults.baseURL || API_BASE_URL
+      const response = await request.post(baseURL + '/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 30000,
+      })
+      // 后端返回 BaseResponse { code, data, message }，data 字段是 URL 字符串
+      const baseResp = response?.data
+      const imageUrl = baseResp?.data
+      if (imageUrl && typeof imageUrl === 'string') {
+        uploadedImages.value.push({ url: imageUrl, name: file.name })
+        message.success(`图片上传成功：${file.name}`)
+      } else {
+        message.error(`图片上传失败：${baseResp?.message || '返回数据异常'}`)
+      }
+    }
+  } catch (error) {
+    console.error('图片上传失败', error)
+    message.error('图片上传失败')
+  } finally {
+    imageUploading.value = false
+    if (target) target.value = ''
+  }
+}
+
+const removeUploadedImage = (index: number) => {
+  uploadedImages.value.splice(index, 1)
+}
+
+const triggerFileUpload = () => {
+  fileInputRef.value?.click()
+}
+
+// 扩展项5：内联编辑 —— 注入 contentEditable 到 iframe
+const toggleInlineEdit = () => {
+  const iframe = document.querySelector('.preview-iframe') as HTMLIFrameElement
+  if (!iframe) {
+    message.warning('请等待页面加载完成')
+    return
+  }
+  try {
+    const doc = iframe.contentDocument
+    if (!doc) return
+    if (!inlineEditing.value) {
+      doc.body.contentEditable = 'true'
+      doc.body.style.outline = '2px dashed #0ea5e9'
+      inlineEditing.value = true
+      message.info('已开启内联编辑，直接在页面上修改文字内容')
+    } else {
+      doc.body.contentEditable = 'false'
+      doc.body.style.outline = ''
+      inlineEditing.value = false
+    }
+  } catch (e) {
+    message.error('无法编辑此页面，可能是跨域限制')
+  }
+}
+
+// 扩展项5：保存内联编辑到后端
+const saveInlineEdit = async () => {
+  const iframe = document.querySelector('.preview-iframe') as HTMLIFrameElement
+  if (!iframe || !selectedVersion.value) {
+    message.warning('没有可保存的版本')
+    return
+  }
+  inlineSaving.value = true
+  try {
+    const doc = iframe.contentDocument
+    if (!doc) throw new Error('无法访问页面内容')
+    const html = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML
+    const baseURL = request.defaults.baseURL || API_BASE_URL
+    await request.post(`${baseURL}/app/${appId.value}/version/${selectedVersion.value}/save-file`, {
+      filePath: 'index.html',
+      content: html,
+    }, { timeout: 15000 })
+    message.success('修改已保存')
+    // 退出编辑模式
+    doc.body.contentEditable = 'false'
+    doc.body.style.outline = ''
+    inlineEditing.value = false
+    // 刷新预览
+    previewFrameKey.value++
+    loadPreview()
+  } catch (error) {
+    console.error('保存失败', error)
+    message.error('保存失败，后端可能尚未实现此接口')
+  } finally {
+    inlineSaving.value = false
+  }
 }
 
 // 页面加载时获取应用信息
@@ -2269,6 +2460,28 @@ onUnmounted(() => {
   border-radius: var(--radius-full);
 }
 
+/* 扩展项1：创建/修改模式标签 */
+.mode-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+
+.mode-create {
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.mode-modify {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
 .header-right {
   display: flex;
   gap: 10px;
@@ -2312,18 +2525,19 @@ onUnmounted(() => {
   min-height: 0;
 }
 
-/* 生成中：隐藏预览面板，代码面板占更多空间 */
+/* 生成中：隐藏预览面板，代码面板占 7 份 */
 .main-content.generating .step-panel {
-  flex: 1.1;
-}
-.main-content.generating .code-panel {
   flex: 3;
 }
+.main-content.generating .code-panel {
+  display: flex !important;
+  flex: 7;
+}
 .main-content.generating .preview-section {
-  display: none;
+  display: none !important;
 }
 
-/* 非生成中：隐藏代码面板，预览占满剩余空间 */
+/* 非生成中：隐藏代码面板，预览占 7 份 */
 .main-content:not(.generating) .code-panel {
   display: none;
 }
@@ -2654,7 +2868,7 @@ onUnmounted(() => {
   border: none !important;
   box-shadow: none !important;
   background: transparent;
-  padding: 12px 56px 12px 14px;
+  padding: 12px 100px 12px 14px;
   resize: none;
 }
 
@@ -2662,6 +2876,84 @@ onUnmounted(() => {
   position: absolute;
   bottom: 10px;
   right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 扩展项4：图片上传按钮 */
+.upload-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
+  font-size: 16px;
+  background: var(--surface);
+  transition: all 0.2s;
+}
+
+.upload-btn:hover:not(:disabled) {
+  color: var(--brand-600);
+  border-color: var(--brand-500);
+  transform: translateY(-1px);
+}
+
+.upload-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* 扩展项4：已上传图片预览区 */
+.uploaded-images-preview {
+  display: flex;
+  gap: 8px;
+  padding: 8px 14px 0;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.uploaded-image-item {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.uploaded-image-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.uploaded-image-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.uploaded-image-remove:hover {
+  background: rgba(220, 38, 38, 0.85);
 }
 
 .send-btn {
@@ -3024,7 +3316,7 @@ onUnmounted(() => {
 
 /* ===== 右侧预览区域 ===== */
 .preview-section {
-  flex: 2.5;
+  flex: 7;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -3299,7 +3591,7 @@ onUnmounted(() => {
 
 /* ===== 左侧步骤面板 ===== */
 .step-panel {
-  flex: 1.1;
+  flex: 3;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -3312,7 +3604,7 @@ onUnmounted(() => {
 
 /* ===== 中间代码面板 ===== */
 .code-panel {
-  flex: 1.5;
+  flex: 7;
   display: flex;
   flex-direction: column;
   background: var(--surface);

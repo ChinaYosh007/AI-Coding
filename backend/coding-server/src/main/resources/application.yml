@@ -7,6 +7,10 @@ server:
       cookie:
         max-age: 2592000 # 30 days
 spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
   application:
     name: AI-Coding
     session:
