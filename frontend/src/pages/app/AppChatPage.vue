@@ -189,8 +189,16 @@
                 <button class="uploaded-image-remove" @click="removeUploadedImage(idx)">×</button>
               </div>
             </div>
+            <!-- 已上传文件预览区 -->
+            <div v-if="uploadedFiles.length > 0" class="uploaded-files-preview">
+              <div v-for="(f, idx) in uploadedFiles" :key="idx" class="uploaded-file-item">
+                <span class="file-icon">📄</span>
+                <span class="file-name" :title="f.name">{{ f.name }}</span>
+                <button class="uploaded-file-remove" @click="removeUploadedFile(idx)">×</button>
+              </div>
+            </div>
             <div class="input-wrapper">
-              <!-- 扩展项4：隐藏的文件上传 input -->
+              <!-- 隐藏的图片上传 input -->
               <input
                   ref="fileInputRef"
                   type="file"
@@ -206,6 +214,7 @@
                     :rows="4"
                     :maxlength="1000"
                     @keydown.enter.prevent="sendMessage"
+                    @paste="handlePaste"
                     :disabled="!isOwner"
                 />
               </a-tooltip>
@@ -216,9 +225,10 @@
                   :rows="4"
                   :maxlength="1000"
                   @keydown.enter.prevent="sendMessage"
+                  @paste="handlePaste"
               />
               <div class="input-actions">
-                <!-- 扩展项4：图片上传按钮 -->
+                <!-- 图片上传按钮 -->
                 <button
                     v-if="isOwner"
                     class="upload-btn"
@@ -228,6 +238,17 @@
                 >
                   <a-spin v-if="imageUploading" size="small" />
                   <PictureOutlined v-else />
+                </button>
+                <!-- 文件上传按钮 -->
+                <button
+                    v-if="isOwner"
+                    class="upload-btn"
+                    :disabled="fileUploading || isGenerating"
+                    @click="triggerFileUploadInput"
+                    title="上传文件"
+                >
+                  <a-spin v-if="fileUploading" size="small" />
+                  <PaperClipOutlined v-else />
                 </button>
                 <button
                     class="send-btn"
@@ -636,6 +657,7 @@ import {
   TeamOutlined,
   UserAddOutlined,
   PictureOutlined,
+  PaperClipOutlined,
   FormOutlined,
   SaveOutlined,
 } from '@ant-design/icons-vue'
@@ -772,6 +794,8 @@ const isModifyMode = computed(() => appVersions.value.length > 0)
 // 扩展项4：图片上传相关
 const uploadedImages = ref<{ url: string; name: string }[]>([])
 const imageUploading = ref(false)
+const uploadedFiles = ref<{ url: string; name: string; size: number }[]>([])
+const fileUploading = ref(false)
 const fileInputRef = ref<HTMLInputElement>()
 
 // 扩展项5：内联编辑保存
@@ -1210,11 +1234,11 @@ const loadMemory = async () => {
 }
 
 const summarizeMemory = async () => {
-  if (!appId.value || memorySaving.value) return
+  if (!appId.value || !selectedVersion.value || memorySaving.value) return
 
   memorySaving.value = true
   try {
-    const res = await summarizeAppChatHistoryMemory(appId.value)
+    const res = await summarizeAppChatHistoryMemory(appId.value, selectedVersion.value!)
     if (res.data.code === 0) {
       await loadMemory()
       message.success('记忆摘要已更新')
@@ -1574,11 +1598,17 @@ const sendMessage = async () => {
   }
 
   let message = userInput.value.trim()
-  // 扩展项4：将上传的图片 URL 拼接到消息中
+  // 将上传的图片 URL 拼接到消息中
   if (uploadedImages.value.length > 0) {
     const imageUrls = uploadedImages.value.map(img => img.url)
     message += `\n\n参考图片：\n${imageUrls.map(url => `- ${url}`).join('\n')}`
     uploadedImages.value = []
+  }
+  // 将上传的文件 URL 拼接到消息中
+  if (uploadedFiles.value.length > 0) {
+    const fileUrls = uploadedFiles.value.map(f => `- [${f.name}](${f.url})`)
+    message += `\n\n参考文件：\n${fileUrls.join('\n')}`
+    uploadedFiles.value = []
   }
   // 如果有选中的元素，将元素信息添加到提示词中
   if (selectedElementInfo.value) {
@@ -2291,7 +2321,7 @@ const handleImageUpload = async (event: Event) => {
       const formData = new FormData()
       formData.append('file', file)
       const baseURL = request.defaults.baseURL || API_BASE_URL
-      const response = await request.post(baseURL + '/upload', formData, {
+      const response = await request.post('/file/upload-image', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 30000,
       })
@@ -2316,6 +2346,124 @@ const handleImageUpload = async (event: Event) => {
 
 const removeUploadedImage = (index: number) => {
   uploadedImages.value.splice(index, 1)
+}
+
+const removeUploadedFile = (index: number) => {
+  uploadedFiles.value.splice(index, 1)
+}
+
+const triggerFileUploadInput = () => {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.multiple = true
+  input.onchange = (e) => handleFileUpload(e)
+  input.click()
+}
+
+const handleFileUpload = async (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const files = target.files
+  if (!files || files.length === 0) return
+
+  fileUploading.value = true
+  try {
+    for (const file of Array.from(files)) {
+      if (file.size > 10 * 1024 * 1024) {
+        message.warning(`${file.name} 超过 10MB 限制`)
+        continue
+      }
+      const formData = new FormData()
+      formData.append('file', file)
+      const baseURL = request.defaults.baseURL || API_BASE_URL
+      const response = await request.post('/file/upload-file', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60000,
+      })
+      const baseResp = response?.data
+      const fileUrl = baseResp?.data
+      if (fileUrl && typeof fileUrl === 'string') {
+        uploadedFiles.value.push({ url: fileUrl, name: file.name, size: file.size })
+        message.success(`文件上传成功：${file.name}`)
+      } else {
+        message.error(`文件上传失败：${baseResp?.message || '返回数据异常'}`)
+      }
+    }
+  } catch (error) {
+    console.error('文件上传失败', error)
+    message.error('文件上传失败')
+  } finally {
+    fileUploading.value = false
+    if (target) target.value = ''
+  }
+}
+
+const handlePaste = async (event: ClipboardEvent) => {
+  const items = event.clipboardData?.items
+  if (!items) return
+  const files: File[] = []
+  for (const item of Array.from(items)) {
+    if (item.kind === 'file') {
+      const file = item.getAsFile()
+      if (file) files.push(file)
+    }
+  }
+  if (files.length === 0) return
+  event.preventDefault()
+  for (const file of files) {
+    if (file.type.startsWith('image/')) {
+      // 图片走图片上传
+      if (file.size > 5 * 1024 * 1024) {
+        message.warning(`${file.name} 超过 5MB 限制`)
+        continue
+      }
+      const formData = new FormData()
+      formData.append('file', file)
+      const baseURL = request.defaults.baseURL || API_BASE_URL
+      imageUploading.value = true
+      try {
+        const response = await request.post('/file/upload-image', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 30000,
+        })
+        const baseResp = response?.data
+        const imageUrl = baseResp?.data
+        if (imageUrl && typeof imageUrl === 'string') {
+          uploadedImages.value.push({ url: imageUrl, name: file.name })
+          message.success(`图片上传成功：${file.name}`)
+        }
+      } catch {
+        message.error(`图片上传失败：${file.name}`)
+      } finally {
+        imageUploading.value = false
+      }
+    } else {
+      // 非图片走通用文件上传
+      if (file.size > 10 * 1024 * 1024) {
+        message.warning(`${file.name} 超过 10MB 限制`)
+        continue
+      }
+      const formData = new FormData()
+      formData.append('file', file)
+      const baseURL = request.defaults.baseURL || API_BASE_URL
+      fileUploading.value = true
+      try {
+        const response = await request.post('/file/upload-file', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 60000,
+        })
+        const baseResp = response?.data
+        const fileUrl = baseResp?.data
+        if (fileUrl && typeof fileUrl === 'string') {
+          uploadedFiles.value.push({ url: fileUrl, name: file.name, size: file.size })
+          message.success(`文件上传成功：${file.name}`)
+        }
+      } catch {
+        message.error(`文件上传失败：${file.name}`)
+      } finally {
+        fileUploading.value = false
+      }
+    }
+  }
 }
 
 const triggerFileUpload = () => {
@@ -2954,6 +3102,58 @@ onUnmounted(() => {
 
 .uploaded-image-remove:hover {
   background: rgba(220, 38, 38, 0.85);
+}
+
+.uploaded-files-preview {
+  display: flex;
+  gap: 8px;
+  padding: 8px 14px 0;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.uploaded-file-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-1);
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.uploaded-file-item .file-icon {
+  font-size: 16px;
+}
+
+.uploaded-file-item .file-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uploaded-file-remove {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.1);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.uploaded-file-remove:hover {
+  background: rgba(220, 38, 38, 0.85);
+  color: #fff;
 }
 
 .send-btn {

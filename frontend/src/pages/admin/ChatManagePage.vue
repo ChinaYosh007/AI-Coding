@@ -193,16 +193,15 @@ const viewAppChat = (appId: string | undefined) => {
   }
 }
 
-// 删除消息
+// 删除消息（前端本地移除，后端暂无删除接口）
 const deleteMessage = async (id: number | undefined) => {
   if (!id) return
 
   try {
-    // 注意：这里需要后端提供删除对话历史的接口
-    // 目前先显示成功，实际实现需要调用删除接口
-    message.success('删除成功')
-    // 刷新数据
-    fetchData()
+    // 后端暂未提供删除对话历史的接口，先在前端本地移除该记录
+    data.value = data.value.filter((item) => item.id !== id)
+    total.value = Math.max(0, total.value - 1)
+    message.success('已从列表移除')
   } catch (error) {
     console.error('删除失败：', error)
     message.error('删除失败')
