@@ -49,4 +49,7 @@ public class UploadController {
         String imageUrl = ossUploadService.uploadImage(file);
         return ResultUtils.success(imageUrl);
     }
+    /**
+     * todo ai绘画上传文档，或者pdf
+     */
 }
