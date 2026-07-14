@@ -24,9 +24,9 @@ public class WriteToFile extends BaseTool {
         this.version = version;
     }
 
-    @Tool("Write content to generater-code-type-router.md file at the specified path. The content should be complete and ready to use.")
+    @Tool("Write complete UTF-8 source text to a relative project file path. Use this tool to create or replace files under src/.")
     public String writeToFile(@P("relativePath - The relative file path where the content should be written, e.g., 'src/App.vue'") String relativePath, 
-                              @P("content - The complete file content to write. Must be properly formatted and escaped for JSON.") String content) {
+                              @P("content - The complete raw file content to write. Do not add a backslash before apostrophes.") String content) {
         invocationCount++;
         log.info("writeToFile 第 {} 次调用, appId={}, version={}, path={}", invocationCount, appId, version, relativePath);
         // 跳过预置文件

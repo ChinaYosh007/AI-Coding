@@ -23,8 +23,8 @@ public class ModifyFile extends BaseTool {
 
     @Tool("Modify an existing file by precisely replacing old content with new content. oldContent must exactly match the text in the file.")
     public String modifyFile(@P("relativePath - The relative file path to modify, e.g., 'src/App.vue'") String relativePath,
-                             @P("oldContent - The exact text content to be replaced.") String oldContent,
-                             @P("newContent - The new text content that will replace the old content.") String newContent) {
+                             @P("oldContent - The exact raw text content to be replaced. Do not add a backslash before apostrophes.") String oldContent,
+                             @P("newContent - The complete raw replacement text. Do not add a backslash before apostrophes.") String newContent) {
         log.info("modifyFile 调用, appId={}, version={}, path={}", appId, version, relativePath);
         try {
             if (StrUtil.isBlank(relativePath)) {
