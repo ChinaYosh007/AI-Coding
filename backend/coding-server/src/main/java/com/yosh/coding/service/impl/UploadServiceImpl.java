@@ -11,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.LocalDate;
@@ -18,7 +20,7 @@ import java.util.UUID;
 
 @Service
 @Slf4j
-public class OssUploadServiceImpl implements OssUploadService {
+public class UploadServiceImpl implements OssUploadService {
 
     @Resource
     private OSS ossClient;
@@ -52,10 +54,49 @@ public class OssUploadServiceImpl implements OssUploadService {
 
     @Override
     public String uploadFile(MultipartFile file) {
+        return uploadFile(file, null);
+    }
+
+    @Override
+    public String uploadFile(File file, String fileName) {
+        String originalFilename = file.getName();
+        String extension = extractExtension(originalFilename);
+        String objectName;
+        if (fileName != null) {
+            objectName = buildFileObjectName(fileName);
+        } else {
+            objectName = buildFileObjectName(extension);
+        }
+        ObjectMetadata metadata = new ObjectMetadata();
+        String contentType = "application/octet-stream";
+        if (contentType != null) {
+            metadata.setContentType(contentType);
+        }
+        metadata.setContentLength((int) file.length());
+        metadata.setContentDisposition("attachment; filename=\"" + originalFilename + "\"");
+
+        try (InputStream inputStream = new FileInputStream(file)) {
+            ossClient.putObject(ossEntry.getBucketName(), objectName, inputStream, metadata);
+            return buildUrl(objectName);
+        } catch (IOException e) {
+            log.error("读取上传文件失败", e);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "读取上传文件失败");
+        } catch (Exception e) {
+            log.error("上传文件到 OSS 失败", e);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "文件上传失败");
+        }
+    }
+
+    @Override
+    public String uploadFile(MultipartFile file, String fileName) {
         String originalFilename = file.getOriginalFilename();
         String extension = extractExtension(originalFilename);
-
-        String objectName = buildFileObjectName(extension);
+        String objectName;
+        if (fileName != null) {
+            objectName = buildFileObjectName(fileName);
+        } else {
+            objectName = buildFileObjectName(extension);
+        }
         ObjectMetadata metadata = new ObjectMetadata();
         String contentType = file.getContentType();
         if (contentType != null) {

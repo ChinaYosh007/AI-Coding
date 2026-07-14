@@ -1,6 +1,6 @@
 package com.yosh.coding.artificalIntelligence;
 
-import com.yosh.coding.artificalIntelligence.model.message.CodeGenTypeResult;
+import com.yosh.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.service.SystemMessage;
 
 /**
@@ -18,5 +18,5 @@ public interface AiCodeGenTypeRoutingService {
      * @return 推荐的代码生成类型结果
      */
     @SystemMessage(fromResource = "prompt/generater-code-type-router.md")
-    CodeGenTypeResult routeCodeGenType(String userPrompt);
+    CodeGenTypeEnum routeCodeGenType(String userPrompt);
 }
