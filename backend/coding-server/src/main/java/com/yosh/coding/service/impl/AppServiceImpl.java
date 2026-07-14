@@ -9,29 +9,21 @@ import cn.hutool.json.JSONUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.yosh.coding.artificalIntelligence.AiCodeGenTypeRoutingService;
-import com.yosh.coding.artificalIntelligence.model.message.CodeGenTypeResult;
+import com.yosh.coding.artificalIntelligence.config.AiCodeGenTypeRoutingServiceFactory;
 import com.yosh.coding.core.AiCodeGeneratorFacade;
 import com.yosh.coding.core.builder.BuilderVueCommand;
 import com.yosh.coding.core.handle.StreamHandlerExecutor;
-import com.yosh.coding.service.AppCollaborationService;
-import com.yosh.coding.service.AppVersionService;
-import com.yosh.coding.service.ChatHistoryService;
-import com.yosh.coding.service.UserService;
+import com.yosh.coding.mapper.AppMapper;
+import com.yosh.coding.service.*;
 import com.yosh.common.OssEntry;
 import com.yosh.exception.BusinessException;
 import com.yosh.exception.ErrorCode;
 import com.yosh.exception.ThrowUtils;
 import com.yosh.model.constants.AppConstant;
+import com.yosh.model.constants.UserContants;
 import com.yosh.model.dto.app.AppCollaborationInviteRequest;
 import com.yosh.model.dto.app.AppQueryRequest;
-import com.yosh.model.entity.App;
-import com.yosh.coding.mapper.AppMapper;
-import com.yosh.coding.service.AppService;
-import com.yosh.model.entity.AppCollaboration;
-import com.yosh.model.entity.AppVersion;
-import com.yosh.model.entity.ChatHistory;
-import com.yosh.model.entity.User;
-import com.yosh.model.constants.UserContants;
+import com.yosh.model.entity.*;
 import com.yosh.model.enums.CodeGenTypeEnum;
 import com.yosh.model.enums.MessageTypeEnum;
 import com.yosh.model.enums.UserRoleEnum;
@@ -51,19 +43,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.Serializable;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -227,18 +211,20 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     }
 
     @Resource
-    private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
+    private AiCodeGenTypeRoutingServiceFactory aiCodeGenTypeRoutingServiceFactory;
     @Override
     public CodeGenTypeEnum generateRoute(String prompt) {
-        CodeGenTypeResult result = aiCodeGenTypeRoutingService.routeCodeGenType(prompt);
-        if (result == null || StrUtil.isBlank(result.getCodeGenType())) {
+        AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
+        CodeGenTypeEnum codeGenTypeEnum = aiCodeGenTypeRoutingService.routeCodeGenType(prompt);
+
+        if (codeGenTypeEnum == null || StrUtil.isBlank(codeGenTypeEnum.getValue())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "AI路由分析失败");
         }
         try {
-            return CodeGenTypeEnum.valueOf(result.getCodeGenType());
+            return CodeGenTypeEnum.valueOf(codeGenTypeEnum.getValue ());
         } catch (IllegalArgumentException e) {
-            log.error("AI返回的代码生成类型无效: {}", result.getCodeGenType(), e);
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "AI返回的代码生成类型无效: " + result.getCodeGenType());
+            log.error("AI返回的代码生成类型无效: {}", codeGenTypeEnum.getValue(), e);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "AI返回的代码生成类型无效: " + codeGenTypeEnum.getValue());
         }
     }
 

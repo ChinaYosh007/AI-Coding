@@ -2,8 +2,7 @@ package com.yosh.coding.agent.node;
 
 import com.yosh.coding.agent.state.WorkflowContext;
 import com.yosh.coding.agent.util.SpringContextUtil;
-import com.yosh.coding.artificalIntelligence.AiCodeGenTypeRoutingService;
-import com.yosh.coding.artificalIntelligence.model.message.CodeGenTypeResult;
+import com.yosh.coding.artificalIntelligence.config.AiCodeGenTypeRoutingServiceFactory;
 import com.yosh.model.enums.CodeGenTypeEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.bsc.langgraph4j.action.AsyncNodeAction;
@@ -22,9 +21,9 @@ public class RouterNode {
             CodeGenTypeEnum generationType;
             try {
                 // 获取AI路由服务
-                AiCodeGenTypeRoutingService routingService = SpringContextUtil.getBean(AiCodeGenTypeRoutingService.class);
+                AiCodeGenTypeRoutingServiceFactory routingServiceFactory = SpringContextUtil.getBean(AiCodeGenTypeRoutingServiceFactory.class);
                 // 根据原始提示词进行智能路由
-                generationType = routingService.routeCodeGenType(context.getOriginalPrompt());
+                generationType = routingServiceFactory.createAiCodeGenTypeRoutingService().routeCodeGenType(context.getOriginalPrompt());
                 log.info("AI智能路由完成，选择类型: {} ({})", generationType.getValue(), generationType.getText());
             } catch (Exception e) {
                 log.error("AI智能路由失败，使用默认HTML类型: {}", e.getMessage());

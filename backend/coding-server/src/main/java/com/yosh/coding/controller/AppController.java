@@ -21,6 +21,7 @@ import com.yosh.model.vo.AppCollaborationMemberVO;
 import com.yosh.model.vo.AppVO;
 import com.yosh.model.vo.LoginUserVO;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -48,7 +49,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/app")
 public class AppController {
-
+    public static final int MAX_APP_SAVE_2_REDIS = 3;
     @Autowired
     private AppService appService;
     @Autowired
@@ -187,11 +188,14 @@ public class AppController {
     }
     /**
      * 分页获取精选应用列表
-     *
+     * 缓存说明: condition 为缓存成立的前置条件
      * @param appQueryRequest 查询请求
      * @return 精选应用列表
      */
     @PostMapping("/good/list/page/vo")
+    @Cacheable(cacheNames = "good_app_page",
+                key = "T(com.yosh.utils.GeneraterCacheKey).generateCacheKey(#appQueryRequest)",
+                condition = "#appQueryRequest.pageSize < MAX_APP_SAVE_2_REDIS")
     public BaseResponse<Page<AppVO>> listGoodAppVOByPage(@RequestBody AppQueryRequest appQueryRequest) {
         ThrowUtils.throwIf(appQueryRequest == null, ErrorCode.PARAMS_ERROR);
         // 限制每页最多 20 个

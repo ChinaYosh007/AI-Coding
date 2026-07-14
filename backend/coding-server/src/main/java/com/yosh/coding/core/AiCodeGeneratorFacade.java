@@ -3,21 +3,22 @@ package com.yosh.coding.core;
 import cn.hutool.json.JSONUtil;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.yosh.coding.agent.util.SpringContextUtil;
 import com.yosh.coding.artificalIntelligence.AiCodeGeneratorService;
 import com.yosh.coding.artificalIntelligence.model.HtmlCodeResult;
 import com.yosh.coding.artificalIntelligence.model.MultiFileCodeResult;
 import com.yosh.coding.artificalIntelligence.model.message.AiResponseMessage;
 import com.yosh.coding.artificalIntelligence.model.message.ToolExecutedMessage;
 import com.yosh.coding.artificalIntelligence.skill.*;
-import com.yosh.coding.core.builder.BuilderVueCommand;
+import com.yosh.coding.core.builder.VueProjectInitializer;
 import com.yosh.coding.core.parser.CodeParserExcutor;
 import com.yosh.coding.core.saver.CodeFilleSaveExecutor;
 import com.yosh.coding.service.ChatHistoryService;
 import com.yosh.exception.BusinessException;
 import com.yosh.exception.ErrorCode;
+import com.yosh.model.constants.AppConstant;
 import com.yosh.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -27,8 +28,8 @@ import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.tool.ToolExecution;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.SignalType;
@@ -36,9 +37,6 @@ import reactor.core.publisher.SignalType;
 import java.io.File;
 import java.time.Duration;
 import java.util.List;
-
-import com.yosh.coding.core.builder.VueProjectInitializer;
-import com.yosh.model.constants.AppConstant;
 
 /**
  * AI 代码生成外观类，组合生成和保存功�?
@@ -57,10 +55,10 @@ public class AiCodeGeneratorFacade {
     private ObjectProvider<ChatHistoryService> chatHistoryServiceProvider;
     @Resource(name = "openAiStreamingChatModel")
     private StreamingChatModel openAiStreamingChatModel;
-    @Autowired
-    private ChatModel chatModel;
     @Resource
     private VueProjectInitializer vueProjectInitializer;
+    @Resource(name = "openAiChatModel")
+    private ChatModel chatModel;
     /**
      * 缓存内部
      * @param appId
@@ -104,28 +102,29 @@ public class AiCodeGeneratorFacade {
 
       return  switch (type){
             case VUE_PROJECT -> {
-                AiCodeGeneratorService build = AiServices.builder(AiCodeGeneratorService.class)
+                var bean = SpringContextUtil.getBean("reasoningStreamingChatModelPrototype", StreamingChatModel.class);
+                yield AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(chatModel)
-                        .streamingChatModel(openAiStreamingChatModel)
-                        .tools(loadSkill(appId,version))
+                        .streamingChatModel(bean)
+                        .tools(this.loadSkill(appId, version))
                         .chatMemoryProvider(id -> messageWindowChatMemory)
-                        .hallucinatedToolNameStrategy((request) -> ToolExecutionResultMessage.from(request,
-                                "error: there no tool called " + request.name()))
+                        .hallucinatedToolNameStrategy((request) -> dev.langchain4j.data.message.ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
                         .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS)
                         .build();
-                yield build;
+
+
             }
             case HTML, MULTI_FILE -> {
-                var builder = AiServices.builder(AiCodeGeneratorService.class)
+
+                var bean = SpringContextUtil.getBean("streamingChatModelPrototype", StreamingChatModel.class);
+                yield AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(chatModel)
-                        .streamingChatModel(openAiStreamingChatModel)
-                        .chatMemoryProvider(id -> messageWindowChatMemory);
-                if (isModify) {
-                    builder.tools(loadSkill(appId, version))
-                           .hallucinatedToolNameStrategy((request) -> dev.langchain4j.data.message.ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
-                           .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS);
-                }
-                yield builder.build();
+                        .streamingChatModel(bean)
+                        .tools(this.loadSkill(appId, version))
+                        .chatMemoryProvider(id -> messageWindowChatMemory)
+                        .hallucinatedToolNameStrategy((request) -> dev.langchain4j.data.message.ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
+                        .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS)
+                        .build();
 
             }
             default -> throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的生成类型:" + type.getValue());
