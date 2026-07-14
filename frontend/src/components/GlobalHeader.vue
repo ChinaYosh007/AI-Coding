@@ -94,14 +94,22 @@
           autocomplete="new-password"
         />
       </a-form-item>
-      <a-form-item label="头像 URL">
-        <a-input v-model:value="profileForm.userAvatar" placeholder="请输入头像图片地址" />
-        <div v-if="profileForm.userAvatar" class="profile-avatar-preview">
-          <a-avatar :size="48" :src="profileForm.userAvatar">
-            {{ profileForm.userName?.charAt(0)?.toUpperCase() || 'U' }}
-          </a-avatar>
-          <span>头像预览</span>
-        </div>
+      <a-form-item label="头像">
+        <a-upload
+          :show-upload-list="false"
+          :before-upload="handleAvatarBeforeUpload"
+          :custom-request="handleAvatarUpload"
+          accept="image/*"
+        >
+          <div class="avatar-upload-trigger">
+            <a-spin :spinning="avatarUploading">
+              <a-avatar :size="48" :src="profileForm.userAvatar">
+                {{ profileForm.userName?.charAt(0)?.toUpperCase() || 'U' }}
+              </a-avatar>
+            </a-spin>
+            <span class="avatar-upload-hint">点击上传头像</span>
+          </div>
+        </a-upload>
       </a-form-item>
       <a-form-item label="个人简介">
         <a-textarea
@@ -122,6 +130,7 @@ import { useRouter } from 'vue-router'
 import { type MenuProps, message } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 import { updateMyUser, userLogout } from '@/api/userController.ts'
+import request from '@/request'
 import {
   LogoutOutlined,
   HomeOutlined,
@@ -157,6 +166,47 @@ const displayUserTitle = computed(() => {
   const account = loginUserStore.loginUser.userAccount
   return account ? `${displayUserName.value}（${account}）` : displayUserName.value
 })
+
+const avatarUploading = ref(false)
+
+const handleAvatarBeforeUpload = (file: File) => {
+  if (!file.type.startsWith('image/')) {
+    message.error('请上传图片文件')
+    return false
+  }
+  if (file.size / 1024 / 1024 > 5) {
+    message.error('图片大小不能超过 5MB')
+    return false
+  }
+  return true
+}
+
+const handleAvatarUpload = async (options: { file: File; onSuccess?: Function; onError?: Function }) => {
+  const { file, onSuccess, onError } = options
+  avatarUploading.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await request.post('/file/upload-image', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 30000,
+    })
+    if (res.data.code === 0) {
+      profileForm.userAvatar = res.data.data
+      message.success('头像上传成功')
+      onSuccess?.(res.data.data)
+    } else {
+      message.error('上传失败，' + res.data.message)
+      onError?.(res.data.message)
+    }
+  } catch (error) {
+    console.error('头像上传失败：', error)
+    message.error('上传失败，请重试')
+    onError?.(error)
+  } finally {
+    avatarUploading.value = false
+  }
+}
 
 const openProfileModal = () => {
   profileForm.userAccount = loginUserStore.loginUser.userAccount || ''
@@ -480,17 +530,24 @@ const doLogout = async () => {
   margin-bottom: 16px;
 }
 
-.profile-avatar-preview {
+.avatar-upload-trigger {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin-top: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border: 1px dashed var(--border);
   border-radius: var(--radius-md);
-  background: var(--surface-2);
-  color: var(--text-2);
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.avatar-upload-trigger:hover {
+  border-color: rgba(14, 165, 233, 0.48);
+}
+
+.avatar-upload-hint {
   font-size: 13px;
+  color: var(--text-3);
 }
 
 @media (max-width: 768px) {

@@ -871,6 +871,10 @@ const getLanguageFromFileName = (fileName: string): string => {
 const highlightedCode = computed(() => {
   const content = currentLiveFile.value?.content
   if (!content) return ''
+  // 生成中用纯文本转义，避免 hljs 每 120ms 全量高亮导致卡顿
+  if (isGenerating.value) {
+    return content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
   const lang = getLanguageFromFileName(currentLiveFile.value!.name)
   try {
     if (lang && hljs.getLanguage(lang)) {
@@ -1838,7 +1842,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
     const scheduleFlush = () => {
       if (renderTimer !== undefined) return
-      renderTimer = window.setTimeout(flushContent, 120)
+      renderTimer = window.setTimeout(flushContent, 300)
     }
 
     startStatusTicker()

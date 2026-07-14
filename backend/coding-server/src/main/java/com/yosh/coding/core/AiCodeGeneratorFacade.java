@@ -3,42 +3,47 @@ package com.yosh.coding.core;
 import cn.hutool.json.JSONUtil;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.yosh.coding.agent.util.SpringContextUtil;
 import com.yosh.coding.artificalIntelligence.AiCodeGeneratorService;
 import com.yosh.coding.artificalIntelligence.model.HtmlCodeResult;
 import com.yosh.coding.artificalIntelligence.model.MultiFileCodeResult;
 import com.yosh.coding.artificalIntelligence.model.message.AiResponseMessage;
 import com.yosh.coding.artificalIntelligence.model.message.ToolExecutedMessage;
 import com.yosh.coding.artificalIntelligence.skill.*;
-import com.yosh.coding.core.builder.BuilderVueCommand;
+import com.yosh.coding.core.builder.VueProjectInitializer;
 import com.yosh.coding.core.parser.CodeParserExcutor;
 import com.yosh.coding.core.saver.CodeFilleSaveExecutor;
 import com.yosh.coding.service.ChatHistoryService;
 import com.yosh.exception.BusinessException;
 import com.yosh.exception.ErrorCode;
+import com.yosh.model.constants.AppConstant;
 import com.yosh.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.service.tool.DefaultToolExecutor;
 import dev.langchain4j.service.tool.ToolExecution;
+import dev.langchain4j.service.tool.ToolExecutor;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.agent.tool.ToolSpecifications;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.SignalType;
 
 import java.io.File;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
-
-import com.yosh.coding.core.builder.VueProjectInitializer;
-import com.yosh.model.constants.AppConstant;
+import java.util.Map;
 
 /**
  * AI 代码生成外观类，组合生成和保存功�?
@@ -57,10 +62,10 @@ public class AiCodeGeneratorFacade {
     private ObjectProvider<ChatHistoryService> chatHistoryServiceProvider;
     @Resource(name = "openAiStreamingChatModel")
     private StreamingChatModel openAiStreamingChatModel;
-    @Autowired
-    private ChatModel chatModel;
     @Resource
     private VueProjectInitializer vueProjectInitializer;
+    @Resource(name = "openAiChatModel")
+    private ChatModel chatModel;
     /**
      * 缓存内部
      * @param appId
@@ -91,6 +96,24 @@ public class AiCodeGeneratorFacade {
                 new ReadProjectDir(appId, version)
         );
     }
+
+    private Map<ToolSpecification, ToolExecutor> loadSanitizedSkills(long appId, long version) {
+        Map<ToolSpecification, ToolExecutor> tools = new LinkedHashMap<>();
+        for (Object tool : loadSkill(appId, version)) {
+            for (ToolSpecification specification : ToolSpecifications.toolSpecificationsFrom(tool)) {
+                tools.put(specification, (request, memoryId) -> {
+                    ToolExecutionRequest sanitizedRequest = ToolExecutionRequest.builder()
+                            .id(request.id())
+                            .name(request.name())
+                            .arguments(ToolArgumentsJsonSanitizer.sanitize(request.arguments()))
+                            .build();
+                    return new DefaultToolExecutor(tool, sanitizedRequest).execute(sanitizedRequest, memoryId);
+                });
+            }
+        }
+        return tools;
+    }
+
     public AiCodeGeneratorService createAiCodeGeneratorService(long appId, long version,CodeGenTypeEnum type, boolean isModify) {
         // 清理旧缓存
         redisChatMemoryStore.deleteMessages(appId);
@@ -104,26 +127,33 @@ public class AiCodeGeneratorFacade {
 
       return  switch (type){
             case VUE_PROJECT -> {
-                AiCodeGeneratorService build = AiServices.builder(AiCodeGeneratorService.class)
-                        .chatModel(chatModel)
-                        .streamingChatModel(openAiStreamingChatModel)
-                        .tools(loadSkill(appId,version))
+                var bean = SpringContextUtil.getBean("reasoningStreamingChatModelPrototype", StreamingChatModel.class);
+                var toolCallingChatModel = SpringContextUtil.getBean("toolCallingChatModelPrototype", ChatModel.class);
+                yield AiServices.builder(AiCodeGeneratorService.class)
+                        .chatModel(toolCallingChatModel)
+                        .streamingChatModel(bean)
+                        .tools(this.loadSanitizedSkills(appId, version))
                         .chatMemoryProvider(id -> messageWindowChatMemory)
-                        .hallucinatedToolNameStrategy((request) -> ToolExecutionResultMessage.from(request,
-                                "error: there no tool called " + request.name()))
+                        .hallucinatedToolNameStrategy((request) -> dev.langchain4j.data.message.ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
                         .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS)
                         .build();
-                yield build;
+
+
             }
             case HTML, MULTI_FILE -> {
+
+                var bean = SpringContextUtil.getBean("streamingChatModelPrototype", StreamingChatModel.class);
+                var toolCallingChatModel = isModify
+                        ? SpringContextUtil.getBean("toolCallingChatModelPrototype", ChatModel.class)
+                        : chatModel;
                 var builder = AiServices.builder(AiCodeGeneratorService.class)
-                        .chatModel(chatModel)
-                        .streamingChatModel(openAiStreamingChatModel)
-                        .chatMemoryProvider(id -> messageWindowChatMemory);
+                        .chatModel(toolCallingChatModel)
+                        .streamingChatModel(bean)
+                        .chatMemoryProvider(id -> messageWindowChatMemory)
+                        .hallucinatedToolNameStrategy((request) -> dev.langchain4j.data.message.ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
+                        .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS);
                 if (isModify) {
-                    builder.tools(loadSkill(appId, version))
-                           .hallucinatedToolNameStrategy((request) -> dev.langchain4j.data.message.ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
-                           .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS);
+                    builder.tools(this.loadSanitizedSkills(appId, version));
                 }
                 yield builder.build();
 
@@ -222,6 +252,16 @@ public class AiCodeGeneratorFacade {
                     .start();
         }).timeout(VUE_STREAM_TIMEOUT);
     }
+
+    private Flux<String> processToolCallResponse(java.util.function.Supplier<String> responseSupplier) {
+        return Flux.defer(() -> {
+            String response = responseSupplier.get();
+            if (response == null || response.isBlank()) {
+                return Flux.empty();
+            }
+            return Flux.just(JSONUtil.toJsonStr(new AiResponseMessage(response)));
+        });
+    }
     /**
      * 统一入口：根据类型生成并保存代码
      *
@@ -281,23 +321,13 @@ public class AiCodeGeneratorFacade {
                     }
                 }
 
-                // 阶段二：异步安装 npm 依赖（~30 秒），不阻塞 AI 代码生成
-                // buildOnly() 已有兜底：如果构建时 node_modules 不存在会补执行 npm install
-                Thread.startVirtualThread(() -> {
-                    try {
-                        vueProjectInitializer.installDependencies(projectPath);
-                    } catch (Exception e) {
-                        log.error("npm 依赖异步安装失败: {}", e.getMessage(), e);
-                    }
-                });
-
-                TokenStream tokenStream = isModify ? service.generateVueCodeModifyStream(appId, userMessage) : service.generateVueCodeStream(appId, userMessage);
-                yield processTokenStream(tokenStream);
+                yield processToolCallResponse(() -> isModify
+                        ? service.generateVueCodeModify(appId, userMessage)
+                        : service.generateVueCode(appId, userMessage));
             }
             case HTML -> {
                 if (isModify) {
-                    TokenStream tokenStream = service.generateHtmlCodeModifyStream(appId, userMessage);
-                    yield processTokenStream(tokenStream);
+                    yield processToolCallResponse(() -> service.generateHtmlCodeModify(appId, userMessage));
                 } else {
                     Flux<String> flux = service.generateHtmlCodeStream(appId,userMessage);
                     yield processCodeStream(flux,CodeGenTypeEnum.HTML,appId,version);
@@ -305,8 +335,7 @@ public class AiCodeGeneratorFacade {
             }
             case MULTI_FILE -> {
                 if (isModify) {
-                    TokenStream tokenStream = service.generateMultiFileCodeModifyStream(appId, userMessage);
-                    yield processTokenStream(tokenStream);
+                    yield processToolCallResponse(() -> service.generateMultiFileCodeModify(appId, userMessage));
                 } else {
                     Flux<String> flux = service.generateMultiFileCodeStream(appId,userMessage);
                     yield processCodeStream(flux,CodeGenTypeEnum.MULTI_FILE,appId,version);

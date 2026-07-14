@@ -40,7 +40,13 @@ public interface AiCodeGeneratorService {
     TokenStream generateMultiFileCodeModifyStream(@MemoryId Long appId, @UserMessage String userMessage);
 
     @SystemMessage(fromResource = "prompt/html-modify.md")
+    String generateMultiFileCodeModify(@MemoryId Long appId, @UserMessage String userMessage);
+
+    @SystemMessage(fromResource = "prompt/html-modify.md")
     TokenStream generateHtmlCodeModifyStream(@MemoryId Long appId, @UserMessage String userMessage);
+
+    @SystemMessage(fromResource = "prompt/html-modify.md")
+    String generateHtmlCodeModify(@MemoryId Long appId, @UserMessage String userMessage);
 
     @SystemMessage("根据初始化提示生成6个字应用名称，以JSON格式返回，例如：{\"appName\": \"示例应用\"}")
     String generateAppName(String initPrompt);
@@ -52,6 +58,12 @@ public interface AiCodeGeneratorService {
     @SystemMessage(fromResource = "prompt/vue-multi-file-html.md")
     TokenStream generateVueCodeStream(@MemoryId Long appId, @UserMessage String userMessage);
 
+    @SystemMessage(fromResource = "prompt/vue-multi-file-html.md")
+    String generateVueCode(@MemoryId Long appId, @UserMessage String userMessage);
+
     @SystemMessage(fromResource = "prompt/vue-modify-file.md")
     TokenStream generateVueCodeModifyStream(@MemoryId Long appId, @UserMessage String userMessage);
+
+    @SystemMessage(fromResource = "prompt/vue-modify-file.md")
+    String generateVueCodeModify(@MemoryId Long appId, @UserMessage String userMessage);
 }
