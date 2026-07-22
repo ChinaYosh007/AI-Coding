@@ -44,15 +44,19 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.io.File;
+import java.net.SocketException;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 /**
  * AI 代码生成外观类，组合生成和保存功�?
@@ -370,7 +374,8 @@ public class AiCodeGeneratorFacade {
                 if (isModify) {
                     yield processToolCallResponse(() -> service.generateHtmlCodeModify(appId, userMessage));
                 } else {
-                    Flux<String> flux = service.generateHtmlCodeStream(appId,userMessage);
+                    Flux<String> flux = retryInitialConnectionFailure(
+                            () -> service.generateHtmlCodeStream(appId, userMessage));
                     yield processCodeStream(flux,CodeGenTypeEnum.HTML,appId,version,resourceUrls);
                 }
             }
@@ -378,7 +383,8 @@ public class AiCodeGeneratorFacade {
                 if (isModify) {
                     yield processToolCallResponse(() -> service.generateMultiFileCodeModify(appId, userMessage));
                 } else {
-                    Flux<String> flux = service.generateMultiFileCodeStream(appId,userMessage);
+                    Flux<String> flux = retryInitialConnectionFailure(
+                            () -> service.generateMultiFileCodeStream(appId, userMessage));
                     yield processCodeStream(flux,CodeGenTypeEnum.MULTI_FILE,appId,version,resourceUrls);
                 }
             }
@@ -389,6 +395,33 @@ public class AiCodeGeneratorFacade {
         };
 
     }
+
+    Flux<String> retryInitialConnectionFailure(Supplier<Flux<String>> streamSupplier) {
+        return Flux.defer(() -> {
+            AtomicBoolean responseStarted = new AtomicBoolean(false);
+            return Flux.defer(streamSupplier)
+                    .doOnNext(ignored -> responseStarted.set(true))
+                    .onErrorResume(error -> {
+                        if (!responseStarted.get() && isTransientConnectionFailure(error)) {
+                            log.warn("AI 流在首个响应片段前断开，将重试一次: {}", conciseMessage(error));
+                            return Flux.defer(streamSupplier);
+                        }
+                        return Flux.error(error);
+                    });
+        });
+    }
+
+    private boolean isTransientConnectionFailure(Throwable error) {
+        Throwable cause = error;
+        while (cause != null) {
+            if (cause instanceof ResourceAccessException || cause instanceof SocketException) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+        return false;
+    }
+
     public Flux<String> generateAndSaveCodeStream(
             String userMessage,
             CodeGenTypeEnum codeGenTypeEnum,
@@ -407,8 +440,24 @@ public class AiCodeGeneratorFacade {
         return Flux.concat(
                 Flux.just(resourceCollectionProgress("正在并行搜集图片、插画和 Logo…")),
                 Mono.fromCallable(() -> resourceCollectionAgent.collectResources(userMessage))
-                .subscribeOn(Schedulers.boundedElastic())
-                .flatMapMany(result -> {
+                        .subscribeOn(Schedulers.boundedElastic())
+                        .map(result -> new ResourceCollectionOutcome(result, false))
+                        // 降级边界只能覆盖资源收集本身，不能吞掉后续代码生成流的异常。
+                        .onErrorResume(error -> {
+                            if (error instanceof GuardrailException) {
+                                return Mono.error(error);
+                            }
+                            log.warn("资源收集失败，使用原始提示词生成: {}", conciseMessage(error));
+                            return Mono.just(new ResourceCollectionOutcome(null, true));
+                        })
+                        .flatMapMany(outcome -> {
+                    if (outcome.collectionFailed()) {
+                        return Flux.concat(
+                                Flux.just(resourceCollectionProgress("资源服务暂时不可用，将继续生成代码…")),
+                                generateAndSaveCodeStreamInternal(
+                                        userMessage, codeGenTypeEnum, appId, version, false, List.of()));
+                    }
+                    ResourceCollectionResult result = outcome.result();
                     int resourceCount = result == null || result.getResources() == null
                             ? 0 : result.getResources().size();
                     int warningCount = result == null || result.getWarnings() == null
@@ -424,17 +473,19 @@ public class AiCodeGeneratorFacade {
                                             + warningText + "，开始生成代码…")),
                             generateAndSaveCodeStreamInternal(
                                     prompt, codeGenTypeEnum, appId, version, false, resourceUrls));
-                })
-                .onErrorResume(error -> {
-                    if (error instanceof GuardrailException) {
-                        return Flux.error(error);
-                    }
-                    log.warn("资源收集失败，使用原始提示词生成", error);
-                    return Flux.concat(
-                            Flux.just(resourceCollectionProgress("资源服务暂时不可用，将继续生成代码…")),
-                            generateAndSaveCodeStreamInternal(
-                                    userMessage, codeGenTypeEnum, appId, version, false, List.of()));
                 }));
+    }
+
+    private String conciseMessage(Throwable error) {
+        String message = error.getMessage();
+        if (message == null || message.isBlank()) {
+            return error.getClass().getSimpleName();
+        }
+        String normalized = message.replaceAll("\\s+", " ");
+        return normalized.length() > 240 ? normalized.substring(0, 240) : normalized;
+    }
+
+    private record ResourceCollectionOutcome(ResourceCollectionResult result, boolean collectionFailed) {
     }
 
     private List<String> extractResourceUrls(ResourceCollectionResult result) {

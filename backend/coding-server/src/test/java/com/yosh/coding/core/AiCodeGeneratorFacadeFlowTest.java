@@ -6,9 +6,12 @@ import com.yosh.exception.BusinessException;
 import com.yosh.model.enums.CodeGenTypeEnum;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.ResourceAccessException;
 import reactor.core.publisher.Flux;
 
+import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -76,5 +79,99 @@ class AiCodeGeneratorFacadeFlowTest {
         assertEquals(3, result.size());
         assertTrue(result.get(1).contains("1 个资源来源已自动降级"));
         assertEquals("generated", result.get(2));
+    }
+
+    @Test
+    void resourceCollectionFailureFallsBackToOriginalPrompt() {
+        AiCodeGeneratorFacade facade = spy(new AiCodeGeneratorFacade());
+        ResourceCollectionAgent resourceCollectionAgent = mock(ResourceCollectionAgent.class);
+        ResourcePromptAssembler resourcePromptAssembler = mock(ResourcePromptAssembler.class);
+        when(resourceCollectionAgent.collectResources("生成商城"))
+                .thenThrow(new IllegalStateException("resource service unavailable"));
+        ReflectionTestUtils.setField(facade, "resourceCollectionAgent", resourceCollectionAgent);
+        ReflectionTestUtils.setField(facade, "resourcePromptAssembler", resourcePromptAssembler);
+        doReturn(Flux.just("generated"))
+                .when(facade)
+                .generateAndSaveCodeStreamInternal(
+                        "生成商城", CodeGenTypeEnum.MULTI_FILE, 12L, 1L, false, List.of());
+
+        List<String> result = facade.generateAndSaveCodeStream(
+                        "生成商城", CodeGenTypeEnum.MULTI_FILE, 12L, 1L, false)
+                .collectList()
+                .block();
+
+        assertEquals(3, result.size());
+        assertTrue(result.get(1).contains("资源服务暂时不可用"));
+        assertEquals("generated", result.get(2));
+        verifyNoInteractions(resourcePromptAssembler);
+        verify(facade).generateAndSaveCodeStreamInternal(
+                "生成商城", CodeGenTypeEnum.MULTI_FILE, 12L, 1L, false, List.of());
+    }
+
+    @Test
+    void codeGenerationFailureIsNotMisclassifiedAsResourceCollectionFailure() {
+        AiCodeGeneratorFacade facade = spy(new AiCodeGeneratorFacade());
+        ResourceCollectionAgent resourceCollectionAgent = mock(ResourceCollectionAgent.class);
+        ResourcePromptAssembler resourcePromptAssembler = mock(ResourcePromptAssembler.class);
+        ResourceCollectionResult collectionResult = new ResourceCollectionResult(
+                List.of(), List.of(), List.of());
+        when(resourceCollectionAgent.collectResources("生成商城")).thenReturn(collectionResult);
+        when(resourcePromptAssembler.assemble("生成商城", collectionResult)).thenReturn("assembled prompt");
+        ReflectionTestUtils.setField(facade, "resourceCollectionAgent", resourceCollectionAgent);
+        ReflectionTestUtils.setField(facade, "resourcePromptAssembler", resourcePromptAssembler);
+        doReturn(Flux.error(new IllegalStateException("model stream disconnected")))
+                .when(facade)
+                .generateAndSaveCodeStreamInternal(
+                        "assembled prompt", CodeGenTypeEnum.MULTI_FILE, 13L, 1L, false, List.of());
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> facade.generateAndSaveCodeStream(
+                                "生成商城", CodeGenTypeEnum.MULTI_FILE, 13L, 1L, false)
+                        .blockLast());
+
+        assertEquals("model stream disconnected", exception.getMessage());
+        verify(facade).generateAndSaveCodeStreamInternal(
+                "assembled prompt", CodeGenTypeEnum.MULTI_FILE, 13L, 1L, false, List.of());
+        verify(facade, never()).generateAndSaveCodeStreamInternal(
+                "生成商城", CodeGenTypeEnum.MULTI_FILE, 13L, 1L, false, List.of());
+    }
+
+    @Test
+    void retriesTransientConnectionFailureBeforeFirstChunkOnce() {
+        AiCodeGeneratorFacade facade = new AiCodeGeneratorFacade();
+        AtomicInteger attempts = new AtomicInteger();
+
+        List<String> result = facade.retryInitialConnectionFailure(() -> {
+                    if (attempts.incrementAndGet() == 1) {
+                        return Flux.error(new ResourceAccessException(
+                                "Unexpected end of file from server", new IOException("EOF")));
+                    }
+                    return Flux.just("complete response");
+                })
+                .collectList()
+                .block();
+
+        assertEquals(List.of("complete response"), result);
+        assertEquals(2, attempts.get());
+    }
+
+    @Test
+    void doesNotRetryAfterAnyResponseChunkWasReceived() {
+        AiCodeGeneratorFacade facade = new AiCodeGeneratorFacade();
+        AtomicInteger attempts = new AtomicInteger();
+
+        assertThrows(
+                ResourceAccessException.class,
+                () -> facade.retryInitialConnectionFailure(() -> {
+                            attempts.incrementAndGet();
+                            return Flux.concat(
+                                    Flux.just("partial response"),
+                                    Flux.error(new ResourceAccessException(
+                                            "stream disconnected", new IOException("EOF"))));
+                        })
+                        .blockLast());
+
+        assertEquals(1, attempts.get());
     }
 }
