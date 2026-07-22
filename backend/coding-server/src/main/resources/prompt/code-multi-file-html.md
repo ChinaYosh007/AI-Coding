@@ -69,7 +69,7 @@
 2. 新闻/案例至少 6 条，每条有标题和摘要。
 3. 表单至少包含姓名、邮箱/电话、留言内容 3 个字段。
 4. 页脚包含公司信息、联系方式、快速链接。
-5. 图片使用 `https://picsum.photos/seed/xxx/宽/高` 作为 URL，首页至少使用 6 张不同图片（seed 不同）。
+5. 如用户消息包含 `<available_resources>`，图片 URL 必须且只能使用其中列出的真实 URL。禁止使用 picsum、loremflickr、placehold、随机 Unsplash 或任何自行编造的外部 URL；资源不足时使用 CSS 渐变、纯色、内联 SVG 或文字首字母代替图片。
 
 ## 六、代码质量
 

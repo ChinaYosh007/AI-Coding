@@ -8,7 +8,6 @@ import cn.hutool.system.SystemUtil;
 import com.yosh.coding.agent.model.image.enums.ImageCategoryEnum;
 import com.yosh.coding.agent.model.image.query.ImageResource;
 import com.yosh.coding.service.OssUploadService;
-import com.yosh.common.OssEntry;
 import com.yosh.exception.BusinessException;
 import com.yosh.exception.ErrorCode;
 import dev.langchain4j.agent.tool.P;

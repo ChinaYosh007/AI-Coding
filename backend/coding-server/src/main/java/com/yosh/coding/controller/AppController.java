@@ -78,9 +78,11 @@ public class AppController {
         App app = new App();
         BeanUtil.copyProperties(appAddRequest, app);
         app.setUserId(loginUser.getId());
-        // 让AI根据内容生成合适的标题，截断防止超长
-        String appName = appService.generateAppName(initPrompt);
-        app.setAppName(appName.length() > 32 ? appName.substring(0, 32) : appName);
+        // 创建应用不依赖模型调用，避免标题生成超时阻塞进入聊天页。
+        boolean shouldGenerateAppName = StrUtil.isBlank(app.getAppName());
+        if (shouldGenerateAppName) {
+            app.setAppName(buildDefaultAppName(initPrompt));
+        }
 
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(appAddRequest.getCodeGenType());
 
@@ -92,7 +94,22 @@ public class AppController {
         // 插入数据库
         boolean result = appService.save(app);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        if (shouldGenerateAppName) {
+            appService.generateAppNameAsync(app.getId(), initPrompt, app.getAppName());
+        }
         return ResultUtils.success(app.getId());
+    }
+
+    private String buildDefaultAppName(String initPrompt) {
+        String normalizedPrompt = initPrompt.replaceAll("\\s+", " ").trim();
+        String candidate = normalizedPrompt
+                .replaceFirst("^(请帮我|帮我|请|设计|开发|创建|制作|生成|做一个|做个)(一个|一套|一个)?", "")
+                .split("[，,。；;：:]", 2)[0]
+                .trim();
+        if (candidate.isBlank() || candidate.matches("(?is).*?(<!doctype|<html|<script|\\b(function|const|import)\\b).*")) {
+            return "新建应用";
+        }
+        return candidate.length() > 16 ? candidate.substring(0, 16) : candidate;
     }
     /**
      * 更新应用（用户只能更新自己的应用名称）

@@ -3,12 +3,16 @@ package com.yosh.coding.core;
 import cn.hutool.json.JSONUtil;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.yosh.coding.agent.model.image.query.ImageResource;
+import com.yosh.coding.agent.model.image.query.ResourceCollectionResult;
+import com.yosh.coding.agent.subagent.resource.ResourceCollectionAgent;
 import com.yosh.coding.agent.util.SpringContextUtil;
 import com.yosh.coding.artificalIntelligence.AiCodeGeneratorService;
 import com.yosh.coding.artificalIntelligence.guardrail.RetryOutputGuardrail;
 import com.yosh.coding.artificalIntelligence.model.HtmlCodeResult;
 import com.yosh.coding.artificalIntelligence.model.MultiFileCodeResult;
 import com.yosh.coding.artificalIntelligence.model.message.AiResponseMessage;
+import com.yosh.coding.artificalIntelligence.model.message.ResourceCollectionProgressMessage;
 import com.yosh.coding.artificalIntelligence.model.message.ToolExecutedMessage;
 import com.yosh.coding.artificalIntelligence.skill.*;
 import com.yosh.coding.core.builder.VueProjectInitializer;
@@ -23,7 +27,10 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.guardrail.GuardrailException;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -36,10 +43,11 @@ import dev.langchain4j.service.tool.ToolExecutor;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.publisher.SignalType;
+import reactor.core.scheduler.Schedulers;
 
 import java.io.File;
 import java.time.Duration;
@@ -60,7 +68,7 @@ public class AiCodeGeneratorFacade {
     private AiCodeGeneratorService aiCodeGeneratorService;
     @Resource
     private RedisChatMemoryStore redisChatMemoryStore;
-    @Autowired
+    @Resource
     private ObjectProvider<ChatHistoryService> chatHistoryServiceProvider;
     @Resource(name = "openAiStreamingChatModel")
     private StreamingChatModel openAiStreamingChatModel;
@@ -68,6 +76,10 @@ public class AiCodeGeneratorFacade {
     private VueProjectInitializer vueProjectInitializer;
     @Resource(name = "openAiChatModel")
     private ChatModel chatModel;
+    @Resource(name = "resourceCollectionAgent")
+    private ResourceCollectionAgent resourceCollectionAgent;
+    @Resource
+    private ResourcePromptAssembler resourcePromptAssembler;
     /**
      * 缓存内部
      * @param appId
@@ -83,15 +95,15 @@ public class AiCodeGeneratorFacade {
             .build();
 
     /**
-     * 预加载tools
+     * 预加载tools,这里把图片相关操作也进行预加载，这样对于图片处理会比较方便一点
      * @param appId
      * @param version
      * @return
      */
-    @Deprecated
-    private List<Object> loadSkill(long appId, long version) {
+
+    private List<Object> loadSkill(long appId, long version, List<String> resourceUrls) {
         return List.of(
-                new WriteToFile(appId, version),
+                new WriteToFile(appId, version, resourceUrls),
                 new DeleteFile(appId, version),
                 new ModifyFile(appId, version),
                 new ReadFile(appId, version),
@@ -100,9 +112,9 @@ public class AiCodeGeneratorFacade {
         );
     }
 
-    private Map<ToolSpecification, ToolExecutor> loadSanitizedSkills(long appId, long version) {
+    private Map<ToolSpecification, ToolExecutor> loadSanitizedSkills(long appId, long version, List<String> resourceUrls) {
         Map<ToolSpecification, ToolExecutor> tools = new LinkedHashMap<>();
-        for (Object tool : loadSkill(appId, version)) {
+        for (Object tool : loadSkill(appId, version, resourceUrls)) {
             for (ToolSpecification specification : ToolSpecifications.toolSpecificationsFrom(tool)) {
                 tools.put(specification, (request, memoryId) -> {
                     ToolExecutionRequest sanitizedRequest = ToolExecutionRequest.builder()
@@ -118,6 +130,11 @@ public class AiCodeGeneratorFacade {
     }
 
     public AiCodeGeneratorService createAiCodeGeneratorService(long appId, long version,CodeGenTypeEnum type, boolean isModify) {
+        return createAiCodeGeneratorService(appId, version, type, isModify, List.of());
+    }
+
+    private AiCodeGeneratorService createAiCodeGeneratorService(
+            long appId, long version, CodeGenTypeEnum type, boolean isModify, List<String> resourceUrls) {
         // 清理旧缓存
         redisChatMemoryStore.deleteMessages(appId);
         MessageWindowChatMemory messageWindowChatMemory = MessageWindowChatMemory
@@ -135,7 +152,7 @@ public class AiCodeGeneratorFacade {
                 yield AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(toolCallingChatModel)
                         .streamingChatModel(bean)
-                        .tools(this.loadSanitizedSkills(appId, version))
+                        .tools(this.loadSanitizedSkills(appId, version, resourceUrls))
                         .chatMemoryProvider(id -> messageWindowChatMemory)
                         .hallucinatedToolNameStrategy((request) -> ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
                         .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS)
@@ -155,7 +172,7 @@ public class AiCodeGeneratorFacade {
                         .hallucinatedToolNameStrategy((request) -> ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
                         .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS);
                 if (isModify) {
-                    builder.tools(this.loadSanitizedSkills(appId, version));
+                    builder.tools(this.loadSanitizedSkills(appId, version, resourceUrls));
                 }
                 yield builder.build();
 
@@ -171,14 +188,24 @@ public class AiCodeGeneratorFacade {
         return this.getAiCodeGeneratorService(appId, version, CodeGenTypeEnum.HTML, false);
     }
     public  AiCodeGeneratorService getAiCodeGeneratorService(Long appId, Long version, CodeGenTypeEnum type, boolean isModify) {
-        String cacheKey = buildCacheKey(appId, version, type, isModify);
-        return serviceCache.get(cacheKey, k -> createAiCodeGeneratorService(appId, version, type, isModify));
+        return getAiCodeGeneratorService(appId, version, type, isModify, List.of());
+    }
+
+    private AiCodeGeneratorService getAiCodeGeneratorService(
+            Long appId, Long version, CodeGenTypeEnum type, boolean isModify, List<String> resourceUrls) {
+        String cacheKey = buildCacheKey(appId, version, type, isModify) + ":" + resourceUrls.hashCode();
+        return serviceCache.get(cacheKey, k -> createAiCodeGeneratorService(appId, version, type, isModify, resourceUrls));
     }
     public String buildCacheKey(Long appId, Long version, CodeGenTypeEnum type, boolean isModify) {
         return appId + ":" + version + ":" + type + ":" + isModify;
     }
 
     public Flux<String> processCodeStream(Flux<String> flux,CodeGenTypeEnum type,Long appId,Long version){
+        return processCodeStream(flux, type, appId, version, List.of());
+    }
+
+    private Flux<String> processCodeStream(
+            Flux<String> flux, CodeGenTypeEnum type, Long appId, Long version, List<String> resourceUrls) {
         if(type == null){
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
@@ -192,7 +219,7 @@ public class AiCodeGeneratorFacade {
                             log.info("Code content length: {}", content.length());
                             Object exec = CodeParserExcutor.executeCode(content,type);
                             log.info("Code parsed successfully: {}", exec.getClass().getSimpleName());
-                            File file = CodeFilleSaveExecutor.saveFile(exec,type,appId,version);
+                            File file = CodeFilleSaveExecutor.saveFile(exec,type,appId,version,resourceUrls);
                             log.info("save file success: {}", file.getAbsolutePath());
                         }catch (Exception e){
                             log.error("save file failed: {}", e.getMessage(), e);
@@ -293,12 +320,19 @@ public class AiCodeGeneratorFacade {
             }
         };
     }
-    public Flux<String> generateAndSaveCodeStream(String userMessage, CodeGenTypeEnum codeGenTypeEnum, Long appId, Long version, boolean isModify) {
+    private Flux<String> generateAndSaveCodeStreamInternal(
+            String userMessage,
+            CodeGenTypeEnum codeGenTypeEnum,
+            Long appId,
+            Long version,
+            boolean isModify,
+            List<String> resourceUrls) {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
 
-        AiCodeGeneratorService service = getAiCodeGeneratorService(appId, version, codeGenTypeEnum, isModify);
+        AiCodeGeneratorService service = getAiCodeGeneratorService(
+                appId, version, codeGenTypeEnum, isModify, resourceUrls);
         //记忆存入redis
 
         return switch (codeGenTypeEnum) {
@@ -324,7 +358,7 @@ public class AiCodeGeneratorFacade {
                 }
 
                 TokenStream tokenStream = isModify ? service.generateVueCodeModifyStream(appId, userMessage)
-                                                    : service.generateVueCodeStream(appId, userMessage);
+                        : service.generateVueCodeStream(appId, userMessage);
                 yield processTokenStream(tokenStream);
             }
             case HTML -> {
@@ -332,7 +366,7 @@ public class AiCodeGeneratorFacade {
                     yield processToolCallResponse(() -> service.generateHtmlCodeModify(appId, userMessage));
                 } else {
                     Flux<String> flux = service.generateHtmlCodeStream(appId,userMessage);
-                    yield processCodeStream(flux,CodeGenTypeEnum.HTML,appId,version);
+                    yield processCodeStream(flux,CodeGenTypeEnum.HTML,appId,version,resourceUrls);
                 }
             }
             case MULTI_FILE -> {
@@ -340,7 +374,7 @@ public class AiCodeGeneratorFacade {
                     yield processToolCallResponse(() -> service.generateMultiFileCodeModify(appId, userMessage));
                 } else {
                     Flux<String> flux = service.generateMultiFileCodeStream(appId,userMessage);
-                    yield processCodeStream(flux,CodeGenTypeEnum.MULTI_FILE,appId,version);
+                    yield processCodeStream(flux,CodeGenTypeEnum.MULTI_FILE,appId,version,resourceUrls);
                 }
             }
             default -> {
@@ -348,20 +382,80 @@ public class AiCodeGeneratorFacade {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, errorMessage);
             }
         };
+
+    }
+    public Flux<String> generateAndSaveCodeStream(
+            String userMessage,
+            CodeGenTypeEnum codeGenTypeEnum,
+            Long appId,
+            Long version,
+            boolean isModify) {
+
+        return Flux.concat(
+                Flux.just(resourceCollectionProgress("正在并行搜集图片、插画和 Logo…")),
+                Mono.fromCallable(() -> resourceCollectionAgent.collectResources(userMessage))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMapMany(result -> {
+                    int resourceCount = result == null || result.getResources() == null
+                            ? 0 : result.getResources().size();
+                    List<String> resourceUrls = extractResourceUrls(result);
+                    String prompt = resourcePromptAssembler.assemble(userMessage, result);
+                    return Flux.concat(
+                            Flux.just(resourceCollectionProgress(
+                                    "资源收集完成，已找到 " + resourceCount + " 个可用资源，开始生成代码…")),
+                            generateAndSaveCodeStreamInternal(
+                                    prompt, codeGenTypeEnum, appId, version, false, resourceUrls));
+                })
+                .onErrorResume(error -> {
+                    if (error instanceof GuardrailException) {
+                        return Flux.error(error);
+                    }
+                    log.warn("资源收集失败，使用原始提示词生成", error);
+                    return Flux.concat(
+                            Flux.just(resourceCollectionProgress("资源服务暂时不可用，将继续生成代码…")),
+                            generateAndSaveCodeStreamInternal(
+                                    userMessage, codeGenTypeEnum, appId, version, false, List.of()));
+                }));
+    }
+
+    private List<String> extractResourceUrls(ResourceCollectionResult result) {
+        if (result == null || result.getResources() == null) {
+            return List.of();
+        }
+        return result.getResources().stream()
+                .map(ImageResource::getImageUrl)
+                .filter(url -> url != null && url.startsWith("http"))
+                .distinct()
+                .toList();
+    }
+
+    private String resourceCollectionProgress(String message) {
+        return JSONUtil.toJsonStr(new ResourceCollectionProgressMessage(message));
     }
 
     public String generateAppName(String initPrompt) {
-        return aiCodeGeneratorService.generateAppName(initPrompt);
+        String systemPrompt = """
+                Generate a concise Chinese application title based on the user's requirement.
+                You must output one valid JSON object and nothing else.
+                The JSON format must be exactly: {"appName":"示例应用"}
+                The appName value must contain 2 to 16 Chinese characters and must not contain HTML, source code, Markdown, quotes, or explanations.
+                """;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            String response = chatModel.chat(
+                            SystemMessage.from(systemPrompt),
+                            UserMessage.from(initPrompt + "\nReturn the result in JSON format."))
+                    .aiMessage()
+                    .text();
+            if (response != null && !response.isBlank()) {
+                return response;
+            }
+        }
+        return null;
     }
 
     public String summarizeAppChatHistoryMemory(String markdown, Long appId) {
         return aiCodeGeneratorService.summarizeAppChatHistoryMemory(markdown, appId);
     }
-
-    public String getAppChatHistoryMemory(Long appId) {
-        return aiCodeGeneratorService.getAppChatHistoryMemory(appId);
-    }
-
 
     public void clearAppMemory(Long appId, Long version,CodeGenTypeEnum type) {
 

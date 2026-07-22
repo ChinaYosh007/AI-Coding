@@ -83,13 +83,7 @@ siteData.js >= 25 条数据：导航 5-7 条 / Hero 数据 / 功能 6+ 条 / 案
 | Contact.vue | 120 | 表单(left) + 联系信息(right) + 地图卡片 |
 | NotFound.vue | 30 | 大 404 + 提示 + 返回按钮 |
 
-图片从以下随机图片源中**混合使用**（每个页面至少用 2 种不同来源），确保多样性：
-- `https://picsum.photos/seed/英文名/宽/高`
-- `https://loremflickr.com/宽/高/关键词?random=数字`
-- `https://placehold.co/宽x高/背景色/文字色?text=描述文字`
-- `https://images.unsplash.com/photo-随机ID?w=宽&h=高&fit=crop`（从常用风景/人物/科技类选）
-
-首页 >= 8 张不同图，同一来源的图片 seed/random/ID 必须各不相同。
+如用户消息包含 `<available_resources>`，所有图片 URL 必须且只能使用其中列出的真实 URL。禁止使用 picsum、loremflickr、placehold、随机 Unsplash 或任何自行编造的外部 URL；资源不足时使用 CSS 渐变、纯色、内联 SVG 或文字首字母代替图片。
 
 ---
 

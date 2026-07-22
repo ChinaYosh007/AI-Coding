@@ -37,7 +37,10 @@ public abstract class CodeSaverTemplate<T>{
     }
 
     protected static  void writeFile(String dir,String fileName,String resource) {
+        if (resource == null || resource.isBlank()) {
+            return;
+        }
         String file = dir + File.separator + fileName;
-        FileUtil.writeString(resource,file, StandardCharsets.UTF_8);
+        FileUtil.writeString(PlaceholderImageUrlSanitizer.sanitize(resource), file, StandardCharsets.UTF_8);
     }
 }

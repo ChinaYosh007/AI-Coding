@@ -36,6 +36,9 @@ public interface AppService extends IService<App> {
     String developApp(Long appId, LoginUserVO user,Long version);
 
     String generateAppName(String initPrompt);
+
+    void generateAppNameAsync(Long appId, String initPrompt, String expectedAppName);
+
     Long getAppChatHistoryStats(Long appId);
 
     String exportAppChatHistoryAsMarkdown(Long appId);

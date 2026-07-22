@@ -24,6 +24,7 @@ import java.util.List;
 @Component
 public class ImageSearchSkill {
     private static final String SEARCH_URL =  "https://api.pexels.com/v1/search";
+    private static final int MAX_SEARCH_COUNT = 80;
     @Value("${pexels.api-key}")
     private String apiKey;
 
@@ -33,9 +34,9 @@ public class ImageSearchSkill {
      * @return
      */
     @Tool("Search Pexels images for website content")
-    public List<ImageResource> searchImages(@P("search query")String query,@P("number of images:number of [1,20]")int count) {
+    public List<ImageResource> searchImages(@P("search query")String query,@P("number of images:number of [1,80]")int count) {
         log.info("Searching images for query: {}", query);
-        ThrowUtils.throwIf(count < 1 || count > 20, ErrorCode.OPERATION_ERROR, "Invalid count value");
+        ThrowUtils.throwIf(count < 1 || count > MAX_SEARCH_COUNT, ErrorCode.OPERATION_ERROR, "Invalid count value");
         ThrowUtils.throwIf(
                 StrUtil.isBlank(query),
                 ErrorCode.PARAMS_ERROR,
@@ -59,6 +60,7 @@ public class ImageSearchSkill {
                             .description(photo.getStr("alt"))
                             .imageUrl(src.getStr("medium"))
                             .source("Pexels")
+                            .imageCategory(ImageCategoryEnum.CONTENT)
                             .photographer(photo.getStr("photographer"))
                             .photographerUrl(photo.getStr("photographer_url"))
                             .sourcePageUrl(photo.getStr("url"))

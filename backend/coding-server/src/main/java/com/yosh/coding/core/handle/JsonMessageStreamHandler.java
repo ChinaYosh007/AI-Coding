@@ -152,6 +152,9 @@ public class JsonMessageStreamHandler {
             chatHistoryStringBuilder.append(chunk);
             return chunk;
         }
+        if ("resource_collection_progress".equals(messageJson.getStr("type"))) {
+            return chunk;
+        }
         StreamMessageTypeEnum typeEnum = StreamMessageTypeEnum.getEnumByValue(messageJson.getStr("type"));
         if (typeEnum == null) {
             chatHistoryStringBuilder.append(chunk);

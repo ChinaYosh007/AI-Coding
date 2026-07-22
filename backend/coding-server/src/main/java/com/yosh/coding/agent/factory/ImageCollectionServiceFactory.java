@@ -51,6 +51,7 @@ public class ImageCollectionServiceFactory {
         return AiServices.builder(ImageCollectionService.class)
                 .chatModel(toolCallChatModel)
                 .tools(imageSearchSkill,logoGeneratorSkill, mermaidDiagramSkill, undrawIllustrationSkill)
+                .maxSequentialToolsInvocations(10)
                 .build();
     }
 }

@@ -38,6 +38,9 @@ public class SimpleTextStreamHandler {
         StringBuilder aiResponseBuilder = new StringBuilder();
         return originFlux
                 .map(chunk -> {
+                    if (chunk.contains("\"type\":\"resource_collection_progress\"")) {
+                        return chunk;
+                    }
                     // 收集AI响应内容
                     aiResponseBuilder.append(chunk);
                     return chunk;
