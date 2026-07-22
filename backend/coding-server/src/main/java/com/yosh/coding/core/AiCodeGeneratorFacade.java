@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.yosh.coding.agent.util.SpringContextUtil;
 import com.yosh.coding.artificalIntelligence.AiCodeGeneratorService;
+import com.yosh.coding.artificalIntelligence.guardrail.RetryOutputGuardrail;
 import com.yosh.coding.artificalIntelligence.model.HtmlCodeResult;
 import com.yosh.coding.artificalIntelligence.model.MultiFileCodeResult;
 import com.yosh.coding.artificalIntelligence.model.message.AiResponseMessage;
@@ -94,7 +95,8 @@ public class AiCodeGeneratorFacade {
                 new DeleteFile(appId, version),
                 new ModifyFile(appId, version),
                 new ReadFile(appId, version),
-                new ReadProjectDir(appId, version)
+                new ReadProjectDir(appId, version),
+                new ExitTool()
         );
     }
 
@@ -137,6 +139,7 @@ public class AiCodeGeneratorFacade {
                         .chatMemoryProvider(id -> messageWindowChatMemory)
                         .hallucinatedToolNameStrategy((request) -> ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
                         .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS)
+                        .outputGuardrails(new RetryOutputGuardrail())
                         .build();
             }
             case HTML, MULTI_FILE -> {
