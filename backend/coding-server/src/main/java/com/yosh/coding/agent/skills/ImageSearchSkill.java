@@ -35,7 +35,19 @@ public class ImageSearchSkill {
      */
     @Tool("Search Pexels images for website content")
     public List<ImageResource> searchImages(@P("search query")String query,@P("number of images:number of [1,80]")int count) {
-        log.info("Searching images for query: {}", query);
+        return searchImages(query, count, ImageCategoryEnum.CONTENT);
+    }
+
+    @Tool("Search Pexels illustration references for website decoration")
+    public List<ImageResource> searchIllustrations(
+            @P("search query") String query,
+            @P("number of images:number of [1,80]") int count) {
+        ThrowUtils.throwIf(StrUtil.isBlank(query), ErrorCode.PARAMS_ERROR, "搜索关键词不能为空");
+        return searchImages(query + " illustration", count, ImageCategoryEnum.ILLUSTRATION);
+    }
+
+    private List<ImageResource> searchImages(String query, int count, ImageCategoryEnum category) {
+        log.info("Searching {} images for query: {}", category.getValue(), query);
         ThrowUtils.throwIf(count < 1 || count > MAX_SEARCH_COUNT, ErrorCode.OPERATION_ERROR, "Invalid count value");
         ThrowUtils.throwIf(
                 StrUtil.isBlank(query),
@@ -60,7 +72,7 @@ public class ImageSearchSkill {
                             .description(photo.getStr("alt"))
                             .imageUrl(src.getStr("medium"))
                             .source("Pexels")
-                            .imageCategory(ImageCategoryEnum.CONTENT)
+                            .imageCategory(category)
                             .photographer(photo.getStr("photographer"))
                             .photographerUrl(photo.getStr("photographer_url"))
                             .sourcePageUrl(photo.getStr("url"))
@@ -70,11 +82,7 @@ public class ImageSearchSkill {
 
             }else {
 
-                    log.error(
-                            "Pexels API failed, status={}, body={}",
-                            response.getStatus(),
-                            response.body()
-                    );
+                    log.warn("Pexels API failed, status={}", response.getStatus());
                     throw new BusinessException(
                             ErrorCode.OPERATION_ERROR,
                             "Image search service unavailable"
@@ -82,11 +90,11 @@ public class ImageSearchSkill {
             }
 
         }catch (BusinessException e){
-            log.error("BusinessException searching images for query: {}", query, e);
+            log.warn("Pexels image search rejected, query={}, reason={}", query, e.getMessage());
             throw e;
         }
         catch (Exception e){
-            log.error("Error searching images for query: {}", query, e);
+            log.warn("Pexels image search unavailable, query={}, reason={}", query, e.getMessage());
         }
 
         return imageResources;

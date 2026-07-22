@@ -4,7 +4,6 @@ import com.yosh.coding.agent.ai.ImageCollectionService;
 import com.yosh.coding.agent.skills.ImageSearchSkill;
 import com.yosh.coding.agent.skills.LogoGeneratorSkill;
 import com.yosh.coding.agent.skills.MermaidDiagramSkill;
-import com.yosh.coding.agent.skills.UndrawIllustrationSkill;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
 import jakarta.annotation.Resource;
@@ -31,10 +30,9 @@ public class ImageCollectionServiceFactory {
 
     @Resource
     private LogoGeneratorSkill logoGeneratorSkill;
+
     @Resource
     private MermaidDiagramSkill mermaidDiagramSkill;
-    @Resource
-    private UndrawIllustrationSkill undrawIllustrationSkill;
 
     @Bean
     public ImageCollectionService imageCollectionService() {
@@ -50,7 +48,7 @@ public class ImageCollectionServiceFactory {
 
         return AiServices.builder(ImageCollectionService.class)
                 .chatModel(toolCallChatModel)
-                .tools(imageSearchSkill,logoGeneratorSkill, mermaidDiagramSkill, undrawIllustrationSkill)
+                .tools(imageSearchSkill, logoGeneratorSkill, mermaidDiagramSkill)
                 .maxSequentialToolsInvocations(10)
                 .build();
     }

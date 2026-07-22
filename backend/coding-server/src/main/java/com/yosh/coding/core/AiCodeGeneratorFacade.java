@@ -411,11 +411,17 @@ public class AiCodeGeneratorFacade {
                 .flatMapMany(result -> {
                     int resourceCount = result == null || result.getResources() == null
                             ? 0 : result.getResources().size();
+                    int warningCount = result == null || result.getWarnings() == null
+                            ? 0 : result.getWarnings().size();
                     List<String> resourceUrls = extractResourceUrls(result);
                     String prompt = resourcePromptAssembler.assemble(userMessage, result);
+                    String warningText = warningCount > 0
+                            ? "，" + warningCount + " 个资源来源已自动降级"
+                            : "";
                     return Flux.concat(
                             Flux.just(resourceCollectionProgress(
-                                    "资源收集完成，已找到 " + resourceCount + " 个可用资源，开始生成代码…")),
+                                    "资源收集完成，已找到 " + resourceCount + " 个可用资源"
+                                            + warningText + "，开始生成代码…")),
                             generateAndSaveCodeStreamInternal(
                                     prompt, codeGenTypeEnum, appId, version, false, resourceUrls));
                 })

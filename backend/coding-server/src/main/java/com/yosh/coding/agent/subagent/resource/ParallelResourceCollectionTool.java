@@ -4,7 +4,6 @@ import com.yosh.coding.agent.model.image.query.ImageResource;
 import com.yosh.coding.agent.model.image.query.ResourceCollectionResult;
 import com.yosh.coding.agent.skills.ImageSearchSkill;
 import com.yosh.coding.agent.skills.LogoGeneratorSkill;
-import com.yosh.coding.agent.skills.UndrawIllustrationSkill;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import jakarta.annotation.Resource;
@@ -26,16 +25,13 @@ import java.util.function.Supplier;
 @Component
 public class ParallelResourceCollectionTool {
 
-    private static final int CONTENT_IMAGE_COUNT = 50;
-    private static final int ILLUSTRATION_COUNT = 20;
+    private static final int CONTENT_IMAGE_COUNT = 40;
+    private static final int ILLUSTRATION_COUNT = 9;
     private static final int MAX_RETURNED_RESOURCES = 50;
     private static final long RESOURCE_TASK_TIMEOUT_SECONDS = 15;
 
     @Resource
     private ImageSearchSkill imageSearchSkill;
-
-    @Resource
-    private UndrawIllustrationSkill undrawIllustrationSkill;
 
     @Resource
     private LogoGeneratorSkill logoGeneratorSkill;
@@ -52,7 +48,7 @@ public class ParallelResourceCollectionTool {
                 () -> imageSearchSkill.searchImages(userPrompt, CONTENT_IMAGE_COUNT));
         CompletableFuture<TaskResult> illustrations = executeAsync(
                 "illustrations",
-                () -> undrawIllustrationSkill.searchIllustrations(userPrompt, ILLUSTRATION_COUNT));
+                () -> imageSearchSkill.searchIllustrations(userPrompt, ILLUSTRATION_COUNT));
         CompletableFuture<TaskResult> logos = executeAsync(
                 "logo",
                 () -> logoGeneratorSkill.generateLogos(userPrompt));
@@ -81,15 +77,31 @@ public class ParallelResourceCollectionTool {
             Supplier<List<ImageResource>> task) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return new TaskResult(task.get(), null);
+                List<ImageResource> resources = task.get();
+                if (resources == null || resources.isEmpty()) {
+                    String warning = taskName + " collection returned no resources";
+                    log.warn(warning);
+                    return new TaskResult(List.of(), warning);
+                }
+                return new TaskResult(resources, null);
             } catch (Exception e) {
-                log.warn("Resource collection task failed: {}", taskName, e);
-                return new TaskResult(List.of(), taskName + " collection failed");
+                String warning = taskName + " collection failed: " + conciseMessage(e);
+                log.warn(warning);
+                return new TaskResult(List.of(), warning);
             }
         }, resourceCollectionExecutor).completeOnTimeout(
                 new TaskResult(List.of(), taskName + " collection timed out"),
                 RESOURCE_TASK_TIMEOUT_SECONDS,
                 TimeUnit.SECONDS);
+    }
+
+    private String conciseMessage(Exception exception) {
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) {
+            return exception.getClass().getSimpleName();
+        }
+        String normalized = message.replaceAll("\\s+", " ");
+        return normalized.length() > 240 ? normalized.substring(0, 240) : normalized;
     }
 
     private List<ImageResource> mergeResources(Collection<TaskResult> taskResults) {

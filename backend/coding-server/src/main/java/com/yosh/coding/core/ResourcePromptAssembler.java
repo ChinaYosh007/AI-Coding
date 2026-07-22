@@ -39,6 +39,15 @@ public class ResourcePromptAssembler {
                     .forEach(suggestion -> prompt.append("- ").append(suggestion).append('\n'));
         }
 
+        List<String> warnings = result == null ? null : result.getWarnings();
+        if (warnings != null && !warnings.isEmpty()) {
+            prompt.append("Unavailable resource sources (use collected URLs or CSS fallback instead):\n");
+            warnings.stream()
+                    .filter(warning -> warning != null && !warning.isBlank())
+                    .limit(10)
+                    .forEach(warning -> prompt.append("- ").append(warning).append('\n'));
+        }
+
         return prompt.append("</available_resources>").toString();
     }
 
