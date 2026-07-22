@@ -6,6 +6,8 @@ import cn.hutool.json.JSONUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.yosh.coding.annotation.AuthCheck;
+import com.yosh.coding.annotation.RateLimit;
+import com.yosh.coding.service.AppService;
 import com.yosh.coding.service.UserService;
 import com.yosh.common.BaseResponse;
 import com.yosh.common.DeleteRequest;
@@ -16,11 +18,14 @@ import com.yosh.exception.ThrowUtils;
 import com.yosh.model.constants.AppConstant;
 import com.yosh.model.constants.UserContants;
 import com.yosh.model.dto.app.*;
+import com.yosh.model.entity.App;
 import com.yosh.model.enums.CodeGenTypeEnum;
+import com.yosh.model.enums.RateLimitType;
 import com.yosh.model.vo.AppCollaborationMemberVO;
 import com.yosh.model.vo.AppVO;
 import com.yosh.model.vo.LoginUserVO;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -29,9 +34,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.beans.factory.annotation.Autowired;
-import com.yosh.model.entity.App;
-import com.yosh.coding.service.AppService;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -193,7 +195,8 @@ public class AppController {
      * @return 精选应用列表
      */
     @PostMapping("/good/list/page/vo")
-    @Cacheable(cacheNames = "good_app_page",
+    @Cacheable(
+                value = "good_app_page",
                 key = "T(com.yosh.utils.GeneraterCacheKey).generateCacheKey(#appQueryRequest)",
                 condition = "#appQueryRequest.pageSize < T(com.yosh.coding.controller.AppController).MAX_APP_SAVE_2_REDIS")
     public BaseResponse<Page<AppVO>> listGoodAppVOByPage(@RequestBody AppQueryRequest appQueryRequest) {
@@ -300,6 +303,7 @@ public class AppController {
      * @return 生成结果流
      */
     @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @RateLimit( rate = 5, rateInterval = 60, limitType = RateLimitType.USER,message = "请求过于频繁，请稍后再试")
     public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,
                                                        @RequestParam String message,
                                                        HttpServletRequest request) {

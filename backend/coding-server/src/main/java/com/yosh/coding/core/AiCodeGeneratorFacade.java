@@ -18,7 +18,11 @@ import com.yosh.exception.BusinessException;
 import com.yosh.exception.ErrorCode;
 import com.yosh.model.constants.AppConstant;
 import com.yosh.model.enums.CodeGenTypeEnum;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -28,9 +32,6 @@ import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.tool.DefaultToolExecutor;
 import dev.langchain4j.service.tool.ToolExecution;
 import dev.langchain4j.service.tool.ToolExecutor;
-import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import dev.langchain4j.agent.tool.ToolSpecification;
-import dev.langchain4j.agent.tool.ToolSpecifications;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -134,11 +135,9 @@ public class AiCodeGeneratorFacade {
                         .streamingChatModel(bean)
                         .tools(this.loadSanitizedSkills(appId, version))
                         .chatMemoryProvider(id -> messageWindowChatMemory)
-                        .hallucinatedToolNameStrategy((request) -> dev.langchain4j.data.message.ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
+                        .hallucinatedToolNameStrategy((request) -> ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
                         .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS)
                         .build();
-
-
             }
             case HTML, MULTI_FILE -> {
 
@@ -150,7 +149,7 @@ public class AiCodeGeneratorFacade {
                         .chatModel(toolCallingChatModel)
                         .streamingChatModel(bean)
                         .chatMemoryProvider(id -> messageWindowChatMemory)
-                        .hallucinatedToolNameStrategy((request) -> dev.langchain4j.data.message.ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
+                        .hallucinatedToolNameStrategy((request) -> ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
                         .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS);
                 if (isModify) {
                     builder.tools(this.loadSanitizedSkills(appId, version));
@@ -321,9 +320,9 @@ public class AiCodeGeneratorFacade {
                     }
                 }
 
-                yield processToolCallResponse(() -> isModify
-                        ? service.generateVueCodeModify(appId, userMessage)
-                        : service.generateVueCode(appId, userMessage));
+                TokenStream tokenStream = isModify ? service.generateVueCodeModifyStream(appId, userMessage)
+                                                    : service.generateVueCodeStream(appId, userMessage);
+                yield processTokenStream(tokenStream);
             }
             case HTML -> {
                 if (isModify) {

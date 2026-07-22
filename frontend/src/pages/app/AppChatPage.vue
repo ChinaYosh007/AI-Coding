@@ -1888,9 +1888,10 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       let errorMessage = rawData || '生成过程中出现错误'
       try {
         const errorData = JSON.parse(rawData)
+        console.error('SSE业务错误事件:', errorData)
         errorMessage = errorData.message || errorData.data || errorMessage
-      } catch {
-        // 保持原始消息
+      } catch (parseError) {
+        console.error('解析SSE业务错误事件失败:', parseError, '原始数据:', rawData)
       }
 
       streamCompleted = true
