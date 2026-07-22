@@ -46,7 +46,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.publisher.SignalType;
 import reactor.core.scheduler.Schedulers;
 
 import java.io.File;
@@ -211,24 +210,30 @@ public class AiCodeGeneratorFacade {
         }
         StringBuilder str = new StringBuilder();
         return flux.doOnNext(str::append)
-                .doFinally(signalType -> {
-                    // 无论流是完成、错误还是取消，都执行保存
-                    if (!signalType.equals(SignalType.CANCEL)) {
-                        try{
-                            String content = str.toString();
-                            log.info("Code content length: {}", content.length());
-                            Object exec = CodeParserExcutor.executeCode(content,type);
-                            log.info("Code parsed successfully: {}", exec.getClass().getSimpleName());
-                            File file = CodeFilleSaveExecutor.saveFile(exec,type,appId,version,resourceUrls);
-                            log.info("save file success: {}", file.getAbsolutePath());
-                        }catch (Exception e){
-                            log.error("save file failed: {}", e.getMessage(), e);
-                            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to save code: " + e.getMessage());
-                        }
-                    } else {
-                        log.warn("Stream cancelled, skipping save");
-                    }
-                });
+                // 保存是响应成功完成的一部分。concatWith 中的异常会继续向 SSE 下游传播，
+                // 避免 doFinally 在流已经完成后抛错却仍向前端发送 done。
+                .concatWith(Flux.defer(() -> {
+                    parseAndSaveCode(str.toString(), type, appId, version, resourceUrls);
+                    return Flux.empty();
+                }))
+                .doOnCancel(() -> log.warn("Stream cancelled, skipping save"));
+    }
+
+    private void parseAndSaveCode(
+            String content, CodeGenTypeEnum type, Long appId, Long version, List<String> resourceUrls) {
+        try {
+            log.info("Code content length: {}", content.length());
+            Object parsedCode = CodeParserExcutor.executeCode(content, type);
+            log.info("Code parsed successfully: {}", parsedCode.getClass().getSimpleName());
+            File file = CodeFilleSaveExecutor.saveFile(parsedCode, type, appId, version, resourceUrls);
+            log.info("save file success: {}", file.getAbsolutePath());
+        } catch (BusinessException e) {
+            log.warn("generated code validation failed: {}", e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("save file failed: {}", e.getMessage(), e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "代码生成结果保存失败: " + e.getMessage());
+        }
     }
     /**
      * 将 TokenStream 转换为 Flux<String>，并传递工具调用信息
@@ -320,7 +325,7 @@ public class AiCodeGeneratorFacade {
             }
         };
     }
-    private Flux<String> generateAndSaveCodeStreamInternal(
+    Flux<String> generateAndSaveCodeStreamInternal(
             String userMessage,
             CodeGenTypeEnum codeGenTypeEnum,
             Long appId,
@@ -390,6 +395,14 @@ public class AiCodeGeneratorFacade {
             Long appId,
             Long version,
             boolean isModify) {
+
+        // 修改模式已经复制了上一版本，并通过读写文件工具做增量修改，
+        // 不需要重新搜集资源，也不能把 isModify 错误地降级为首次生成。
+        if (isModify) {
+            log.info("修改模式跳过资源收集: appId={}, version={}", appId, version);
+            return generateAndSaveCodeStreamInternal(
+                    userMessage, codeGenTypeEnum, appId, version, true, List.of());
+        }
 
         return Flux.concat(
                 Flux.just(resourceCollectionProgress("正在并行搜集图片、插画和 Logo…")),

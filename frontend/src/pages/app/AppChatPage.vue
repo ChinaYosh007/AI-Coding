@@ -63,7 +63,10 @@
         <div class="chat-mini">
           <!-- 生成中：紧凑进度条 -->
           <div v-if="isGenerating" class="gen-progress-bar">
-            <template v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)" :key="'stream-bar'">
+            <template
+              v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)"
+              :key="`stream-bar-${streamMsg.streamInfo?.updatedAt || 'pending'}`"
+            >
               <div v-if="streamMsg.streamInfo" class="gen-bar-info">
                 <a-spin size="small" />
                 <span class="gen-bar-action">{{ streamMsg.streamInfo.currentAction }}</span>
@@ -292,7 +295,10 @@
               实时文件
             </span>
           </div>
-          <template v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)" :key="'stream-mid'">
+          <template
+            v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)"
+            :key="`stream-mid-${streamMsg.streamInfo?.updatedAt || 'pending'}`"
+          >
             <div class="file-explorer-body">
               <aside class="file-tree">
                 <div v-if="liveFiles.length === 0" class="file-tree-empty">
@@ -662,7 +668,6 @@ import {
   InfoCircleOutlined,
   DownloadOutlined,
   EditOutlined,
-  HistoryOutlined,
   MessageOutlined,
   ReloadOutlined,
   ThunderboltFilled,
@@ -1423,75 +1428,85 @@ const buildGenerationTasks = (
   writtenFiles: string[],
   devServerUrl: string,
   completed: boolean,
+  isModification: boolean,
 ): GenerationTask[] => {
   const isVue = codeGenType === 'vue_project'
   const isMultiFile = codeGenType === 'multi_file'
-  const isHtml = codeGenType === 'html'
 
-  const hasResources = !!resourceCollectionStatus
+  const hasResources = !isModification && !!resourceCollectionStatus
   const hasCode = aiTextLength > 0 || writtenFiles.length > 0
   const hasFiles = writtenFiles.length > 0
   const hasDevServer = !!devServerUrl
 
-  const baseTasks: GenerationTask[] = [
-    {
+  const baseTasks: GenerationTask[] = []
+  if (!isModification) {
+    baseTasks.push({
       id: 'resource_collection',
       label: '资源收集',
       description: '并行搜集图片、插画和 Logo',
-      status: hasResources ? 'active' : hasCode || completed ? 'completed' : 'pending',
-    },
-    {
-      id: 'code_generation',
-      label: isVue ? '生成文件' : isMultiFile ? '生成多文件' : '生成代码',
-      description: isVue ? '正在写入 Vue 组件与配置文件' : isMultiFile ? '正在写入 HTML/CSS/JS' : '正在生成单文件页面',
-      status: hasResources ? 'pending' : hasCode ? 'active' : completed ? 'completed' : 'pending',
-    },
-    {
-      id: 'preview_ready',
-      label: '预览就绪',
-      description: isVue ? '启动开发服务器并加载右侧预览' : '右侧预览加载完成',
-      status: 'pending',
-    },
-  ]
+      status: hasResources ? 'active' : 'pending',
+    })
+  }
+  baseTasks.push({
+    id: 'code_generation',
+    label: isModification ? '修改文件' : isVue ? '生成文件' : isMultiFile ? '生成多文件' : '生成代码',
+    description: isModification
+      ? '读取现有代码并按要求增量修改'
+      : isVue
+        ? '正在写入 Vue 组件与配置文件'
+        : isMultiFile
+          ? '正在写入 HTML/CSS/JS'
+          : '正在生成单文件页面',
+    status: 'pending',
+  })
 
   if (isVue) {
-    baseTasks.splice(2, 0, {
+    baseTasks.push({
       id: 'dev_server',
       label: '启动开发服务器',
       description: '执行 npm run dev 并返回预览地址',
       status: 'pending',
     })
   }
+  baseTasks.push({
+    id: 'preview_ready',
+    label: '预览就绪',
+    description: isVue ? '启动开发服务器并加载右侧预览' : '右侧预览加载完成',
+    status: 'pending',
+  })
 
   // 推进状态
-  if (!hasResources && (hasCode || completed)) {
-    baseTasks[0].status = 'completed'
+  const resourceTask = baseTasks.find(task => task.id === 'resource_collection')
+  const generationTask = baseTasks.find(task => task.id === 'code_generation')
+  const devServerTask = baseTasks.find(task => task.id === 'dev_server')
+  const previewTask = baseTasks.find(task => task.id === 'preview_ready')
+
+  if (resourceTask && !hasResources && (hasCode || completed)) {
+    resourceTask.status = 'completed'
   }
 
-  if (hasCode) {
-    baseTasks[1].status = 'completed'
+  if (generationTask && (hasCode || completed)) {
+    generationTask.status = 'completed'
   } else if (!hasResources && !completed) {
-    baseTasks[1].status = 'active'
+    if (generationTask) generationTask.status = 'active'
   }
 
   if (isVue) {
-    if (hasFiles && !hasDevServer && !completed) {
-      baseTasks[2].status = 'active'
-    } else if (hasDevServer || completed) {
-      baseTasks[2].status = 'completed'
+    if (devServerTask) {
+      if (hasFiles && !hasDevServer && !completed) {
+        devServerTask.status = 'active'
+      } else if (hasDevServer || completed) {
+        devServerTask.status = 'completed'
+      }
     }
-    if (hasDevServer) {
-      baseTasks[3].status = 'completed'
-    } else if (completed) {
-      baseTasks[3].status = 'active'
-    }
+    if (previewTask && (hasDevServer || completed)) previewTask.status = 'completed'
   } else {
-    if (hasDevServer) {
-      baseTasks[2].status = 'completed'
-    } else if (hasCode && completed) {
-      baseTasks[2].status = 'completed'
-    } else if (hasCode) {
-      baseTasks[2].status = 'active'
+    if (previewTask) {
+      if (completed) {
+        previewTask.status = 'completed'
+      } else if (hasCode) {
+        previewTask.status = 'active'
+      }
     }
   }
 
@@ -1560,15 +1575,6 @@ const createStreamInfo = (): StreamInfo => ({
   fileNames: [],
   updatedAt: new Date().toISOString(),
 })
-
-const truncateText = (text?: string, maxLength = 60) => {
-  if (!text) return ''
-  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
-}
-
-const buildGenerateDoneMessage = () => {
-  return '网站已生成完成，右侧预览已更新。你可以继续描述修改需求，或选择版本进行部署。'
-}
 
 const normalizeAiHistoryContent = (content?: string) => {
   if (!content) return ''
@@ -1916,6 +1922,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
   // 计算预期的新版本号：后端创建版本 = 当前最新版本 + 1
   // 后端在收到 SSE 请求时才创建版本，这里提前算好避免时序问题
   const preGenVersion = appVersions.value[0]?.version
+  const isModification = !!preGenVersion
   if (preGenVersion) {
     generatingVersion.value = preGenVersion + 1
   } else {
@@ -1962,6 +1969,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
           writtenFiles,
           devServerUrl,
           false,
+          isModification,
         ),
       }
 
@@ -2046,6 +2054,16 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
           msg.streamInfo.stage = generationSteps.length - 1
           msg.streamInfo.currentAction = '生成完成'
           msg.streamInfo.updatedAt = new Date().toISOString()
+          msg.streamInfo.tasks = buildGenerationTasks(
+            appInfo.value?.codeGenType,
+            resourceCollectionStatus,
+            aiText.length,
+            '',
+            writtenFiles,
+            devServerUrl,
+            true,
+            isModification,
+          )
         }
       }
 
@@ -2514,7 +2532,6 @@ const handleImageUpload = async (event: Event) => {
       }
       const formData = new FormData()
       formData.append('file', file)
-      const baseURL = request.defaults.baseURL || API_BASE_URL
       const response = await request.post('/file/upload-image', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 30000,
@@ -2568,7 +2585,6 @@ const handleFileUpload = async (event: Event) => {
       }
       const formData = new FormData()
       formData.append('file', file)
-      const baseURL = request.defaults.baseURL || API_BASE_URL
       const response = await request.post('/file/upload-file', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 60000,
@@ -2612,7 +2628,6 @@ const handlePaste = async (event: ClipboardEvent) => {
       }
       const formData = new FormData()
       formData.append('file', file)
-      const baseURL = request.defaults.baseURL || API_BASE_URL
       imageUploading.value = true
       try {
         const response = await request.post('/file/upload-image', formData, {
@@ -2638,7 +2653,6 @@ const handlePaste = async (event: ClipboardEvent) => {
       }
       const formData = new FormData()
       formData.append('file', file)
-      const baseURL = request.defaults.baseURL || API_BASE_URL
       fileUploading.value = true
       try {
         const response = await request.post('/file/upload-file', formData, {
@@ -2684,7 +2698,7 @@ const toggleInlineEdit = () => {
       doc.body.style.outline = ''
       inlineEditing.value = false
     }
-  } catch (e) {
+  } catch {
     message.error('无法编辑此页面，可能是跨域限制')
   }
 }
