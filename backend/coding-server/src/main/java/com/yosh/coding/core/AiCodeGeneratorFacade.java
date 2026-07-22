@@ -531,7 +531,16 @@ public class AiCodeGeneratorFacade {
 
         redisChatMemoryStore.deleteMessages(appId);
         //清理 caffeine
-        String key = buildCacheKey(appId, version, type, false);
-        serviceCache.invalidate(key);
+        String keyPrefix = appId + ":" + version + ":" + type + ":";
+        serviceCache.asMap().keySet().removeIf(key -> key.startsWith(keyPrefix));
+    }
+
+    /**
+     * 清理指定应用的 Redis 对话记忆和全部本地 AI Service 缓存。
+     */
+    public void clearAppMemory(Long appId) {
+        redisChatMemoryStore.deleteMessages(appId);
+        String keyPrefix = appId + ":";
+        serviceCache.asMap().keySet().removeIf(key -> key.startsWith(keyPrefix));
     }
 }
