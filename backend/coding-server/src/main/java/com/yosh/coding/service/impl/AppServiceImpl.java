@@ -533,6 +533,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     private OssEntry ossEntry;
     @Override
     @Transactional
+    /**
+     * 异步打包，进度条反馈----> SSE(服务器发送事件，单向发送)
+     *
+     */
     public String developApp(Long appId, LoginUserVO loginUser,Long version){
         //权限校验
         ThrowUtils.throwIf(version == null,ErrorCode.ERROR_QUERY,"version isn't null!!!");
@@ -557,6 +561,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         ThrowUtils.throwIf(!sourceDirFile.exists() || !sourceDirFile.isDirectory(),ErrorCode.NOT_FOUND_ERROR,"please create app of your");
 
         if(app.getCodeGenType().equals(CodeGenTypeEnum.VUE_PROJECT.getValue())){
+            // 构建Vue项目，异步处理
             boolean res = builderVueCommand.buildProject(sourcePath);
             ThrowUtils.throwIf(!res, ErrorCode.SYSTEM_ERROR, "Failed to build Vue project");
             File dir = new File(sourceDirFile,"dist");

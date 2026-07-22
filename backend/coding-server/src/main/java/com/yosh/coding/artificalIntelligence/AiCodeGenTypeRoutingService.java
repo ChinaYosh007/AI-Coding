@@ -1,7 +1,9 @@
 package com.yosh.coding.artificalIntelligence;
 
 import com.yosh.coding.artificalIntelligence.model.message.CodeGenTypeResult;
+import com.yosh.coding.artificalIntelligence.guardrail.PromptSafetyInputGuardrail;
 import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.guardrail.InputGuardrails;
 
 /**
  * AI代码生成类型智能路由服务
@@ -18,5 +20,6 @@ public interface AiCodeGenTypeRoutingService {
      * @return 推荐的代码生成类型结果
      */
     @SystemMessage(fromResource = "prompt/generater-code-type-router.md")
+    @InputGuardrails(PromptSafetyInputGuardrail.class)
     CodeGenTypeResult routeCodeGenType(String userPrompt);
 }
