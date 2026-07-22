@@ -15,6 +15,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -114,6 +115,44 @@ public class UploadServiceImpl implements OssUploadService {
         } catch (Exception e) {
             log.error("上传文件到 OSS 失败", e);
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "文件上传失败");
+        }
+    }
+
+    @Override
+    public boolean deleteFileByUrl(String fileUrl) {
+        if (fileUrl == null || fileUrl.isBlank()) {
+            return false;
+        }
+
+        URI fileUri;
+        URI endpointUri;
+        try {
+            fileUri = URI.create(fileUrl);
+            String endpoint = ossEntry.getEndpoint();
+            endpointUri = URI.create(endpoint.contains("://") ? endpoint : "https://" + endpoint);
+        } catch (IllegalArgumentException exception) {
+            log.warn("忽略无法解析的 OSS 文件地址：{}", fileUrl);
+            return false;
+        }
+
+        String expectedHost = ossEntry.getBucketName() + "." + endpointUri.getHost();
+        if (fileUri.getHost() == null || !expectedHost.equalsIgnoreCase(fileUri.getHost())) {
+            log.debug("文件不属于当前项目 OSS，跳过删除：{}", fileUrl);
+            return false;
+        }
+
+        String objectName = fileUri.getPath();
+        if (objectName == null || objectName.length() <= 1) {
+            return false;
+        }
+        objectName = objectName.substring(1);
+
+        try {
+            ossClient.deleteObject(ossEntry.getBucketName(), objectName);
+            return true;
+        } catch (Exception exception) {
+            log.error("删除 OSS 文件失败，url={}", fileUrl, exception);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "删除 OSS 文件失败");
         }
     }
 

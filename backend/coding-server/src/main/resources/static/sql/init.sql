@@ -56,7 +56,8 @@ create table app
     isDelete     tinyint  default 0                 not null comment '是否删除',
     UNIQUE KEY uk_deployKey (deployKey), -- 确保部署标识唯一
     INDEX idx_appName (appName),         -- 提升基于应用名称的查询性能
-    INDEX idx_userId (userId)            -- 提升基于用户 ID 的查询性能
+    INDEX idx_userId (userId),           -- 提升基于用户 ID 的查询性能
+    INDEX idx_deleted_cleanup (isDelete, updateTime, id)
 ) comment '应用' collate = utf8mb4_unicode_ci;
 
 alter table app add  version varchar(32) default '1.0.0' comment '版本号';

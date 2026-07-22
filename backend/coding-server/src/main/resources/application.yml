@@ -112,4 +112,8 @@ dashscope:
 
 pexels:
   api-key: ${PEXELS_API_KEY}
+cleanup:
+  logic-deleted:
+    cron: "0 */3 * * * *"
+    zone: "Asia/Shanghai"
 
