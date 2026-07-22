@@ -81,6 +81,7 @@ langchain4j:
       api-key: ${API_KEY}
       model-name: ${STREAM_MODEL:deepseek-v4-flash}
       max-tokens: 8192
+      thinking-enabled: ${STREAM_THINKING_ENABLED:false}
       log-requests: true
       log-responses: true
         # 推理 AI 模型配置（用于复杂的推理任务）
