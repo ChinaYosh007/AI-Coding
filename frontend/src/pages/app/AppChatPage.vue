@@ -63,7 +63,10 @@
         <div class="chat-mini">
           <!-- 生成中：紧凑进度条 -->
           <div v-if="isGenerating" class="gen-progress-bar">
-            <template v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)" :key="'stream-bar'">
+            <template
+              v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)"
+              :key="`stream-bar-${streamMsg.streamInfo?.updatedAt || 'pending'}`"
+            >
               <div v-if="streamMsg.streamInfo" class="gen-bar-info">
                 <a-spin size="small" />
                 <span class="gen-bar-action">{{ streamMsg.streamInfo.currentAction }}</span>
@@ -137,6 +140,24 @@
                 <div class="message-content">
                   <div class="message-meta">AI 助手 · {{ formatMessageTime(message.createTime) }}</div>
                   <MarkdownRenderer v-if="message.content" :content="message.content" />
+                  <div v-if="message.loading && message.streamInfo?.tasks?.length" class="generation-tasks">
+                    <div
+                        v-for="task in message.streamInfo.tasks"
+                        :key="task.id"
+                        class="generation-task"
+                        :class="task.status"
+                    >
+                      <span class="task-icon">
+                        <CheckCircleOutlined v-if="task.status === 'completed'" />
+                        <LoadingOutlined v-else-if="task.status === 'active'" />
+                        <ClockCircleOutlined v-else />
+                      </span>
+                      <div class="task-body">
+                        <div class="task-label">{{ task.label }}</div>
+                        <div v-if="task.description" class="task-desc">{{ task.description }}</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -274,7 +295,10 @@
               实时文件
             </span>
           </div>
-          <template v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)" :key="'stream-mid'">
+          <template
+            v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)"
+            :key="`stream-mid-${streamMsg.streamInfo?.updatedAt || 'pending'}`"
+          >
             <div class="file-explorer-body">
               <aside class="file-tree">
                 <div v-if="liveFiles.length === 0" class="file-tree-empty">
@@ -626,7 +650,7 @@ import {
 import { listAppVersions } from '@/api/appVersionController'
 import { listAppChatHistory } from '@/api/chatHistoryController'
 import { CodeGenTypeEnum, formatCodeGenType } from '@/utils/codeGenTypes'
-import { getDisplayNameFromText } from '@/utils/appNameParser'
+import { getDisplayNameFromText, getFallbackAppName } from '@/utils/appNameParser'
 import { formatTime } from '@/utils/time'
 import request from '@/request'
 
@@ -644,7 +668,6 @@ import {
   InfoCircleOutlined,
   DownloadOutlined,
   EditOutlined,
-  HistoryOutlined,
   MessageOutlined,
   ReloadOutlined,
   ThunderboltFilled,
@@ -660,6 +683,9 @@ import {
   PaperClipOutlined,
   FormOutlined,
   SaveOutlined,
+  CheckCircleOutlined,
+  LoadingOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -670,6 +696,13 @@ const loginUserStore = useLoginUserStore()
 const appInfo = ref<API.AppVO>()
 const appId = ref('')
 
+// AI 应用名称自动轮询
+const initialAppName = ref<string>('')
+let nameRefreshTimer: number | undefined
+let nameRefreshCount = 0
+const NAME_REFRESH_INTERVAL = 2000
+const MAX_NAME_REFRESH_COUNT = 15
+
 // 对话相关
 interface Message {
   type: 'user' | 'ai'
@@ -679,12 +712,20 @@ interface Message {
   streamInfo?: StreamInfo
 }
 
+interface GenerationTask {
+  id: string
+  label: string
+  description?: string
+  status: 'pending' | 'active' | 'completed'
+}
+
 interface StreamInfo {
   totalChars: number
   stage: number
   currentAction: string
   fileNames: string[]
   updatedAt?: string
+  tasks?: GenerationTask[]
 }
 
 interface SourceFile {
@@ -812,7 +853,7 @@ const isAdmin = computed(() => {
 })
 
 const displayAppName = computed(() => {
-  return getDisplayNameFromText(appInfo.value?.appName) || getDisplayNameFromText(appInfo.value?.initPrompt) || '网站生成器'
+  return getDisplayNameFromText(appInfo.value?.appName) || getFallbackAppName(appInfo.value?.initPrompt, '网站生成器')
 })
 
 const localDialogRounds = computed(() => {
@@ -1378,6 +1419,100 @@ const getRotatingMessage = (messages: string[], tick: number) => {
   return messages[tick % messages.length]
 }
 
+// 根据项目类型构建生成任务步骤
+const buildGenerationTasks = (
+  codeGenType: string | undefined,
+  resourceCollectionStatus: string,
+  aiTextLength: number,
+  pendingFile: string,
+  writtenFiles: string[],
+  devServerUrl: string,
+  completed: boolean,
+  isModification: boolean,
+): GenerationTask[] => {
+  const isVue = codeGenType === 'vue_project'
+  const isMultiFile = codeGenType === 'multi_file'
+
+  const hasResources = !isModification && !!resourceCollectionStatus
+  const hasCode = aiTextLength > 0 || writtenFiles.length > 0
+  const hasFiles = writtenFiles.length > 0
+  const hasDevServer = !!devServerUrl
+
+  const baseTasks: GenerationTask[] = []
+  if (!isModification) {
+    baseTasks.push({
+      id: 'resource_collection',
+      label: '资源收集',
+      description: '并行搜集图片、插画和 Logo',
+      status: hasResources ? 'active' : 'pending',
+    })
+  }
+  baseTasks.push({
+    id: 'code_generation',
+    label: isModification ? '修改文件' : isVue ? '生成文件' : isMultiFile ? '生成多文件' : '生成代码',
+    description: isModification
+      ? '读取现有代码并按要求增量修改'
+      : isVue
+        ? '正在写入 Vue 组件与配置文件'
+        : isMultiFile
+          ? '正在写入 HTML/CSS/JS'
+          : '正在生成单文件页面',
+    status: 'pending',
+  })
+
+  if (isVue) {
+    baseTasks.push({
+      id: 'dev_server',
+      label: '启动开发服务器',
+      description: '执行 npm run dev 并返回预览地址',
+      status: 'pending',
+    })
+  }
+  baseTasks.push({
+    id: 'preview_ready',
+    label: '预览就绪',
+    description: isVue ? '启动开发服务器并加载右侧预览' : '右侧预览加载完成',
+    status: 'pending',
+  })
+
+  // 推进状态
+  const resourceTask = baseTasks.find(task => task.id === 'resource_collection')
+  const generationTask = baseTasks.find(task => task.id === 'code_generation')
+  const devServerTask = baseTasks.find(task => task.id === 'dev_server')
+  const previewTask = baseTasks.find(task => task.id === 'preview_ready')
+
+  if (resourceTask && !hasResources && (hasCode || completed)) {
+    resourceTask.status = 'completed'
+  }
+
+  if (generationTask && (hasCode || completed)) {
+    generationTask.status = 'completed'
+  } else if (!hasResources && !completed) {
+    if (generationTask) generationTask.status = 'active'
+  }
+
+  if (isVue) {
+    if (devServerTask) {
+      if (hasFiles && !hasDevServer && !completed) {
+        devServerTask.status = 'active'
+      } else if (hasDevServer || completed) {
+        devServerTask.status = 'completed'
+      }
+    }
+    if (previewTask && (hasDevServer || completed)) previewTask.status = 'completed'
+  } else {
+    if (previewTask) {
+      if (completed) {
+        previewTask.status = 'completed'
+      } else if (hasCode) {
+        previewTask.status = 'active'
+      }
+    }
+  }
+
+  return baseTasks
+}
+
 const buildGenerationStatusMessage = (
   aiText: string,
   pendingFile: string,
@@ -1440,15 +1575,6 @@ const createStreamInfo = (): StreamInfo => ({
   fileNames: [],
   updatedAt: new Date().toISOString(),
 })
-
-const truncateText = (text?: string, maxLength = 60) => {
-  if (!text) return ''
-  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
-}
-
-const buildGenerateDoneMessage = () => {
-  return '网站已生成完成，右侧预览已更新。你可以继续描述修改需求，或选择版本进行部署。'
-}
 
 const normalizeAiHistoryContent = (content?: string) => {
   if (!content) return ''
@@ -1521,6 +1647,49 @@ const loadMoreHistory = async () => {
   await loadChatHistory(true)
 }
 
+// 启动应用名称轮询，AI 异步生成名称后自动刷新
+const startAppNameRefresh = () => {
+  if (!appInfo.value?.id) return
+  if (nameRefreshTimer !== undefined) return
+
+  initialAppName.value = appInfo.value?.appName || ''
+  nameRefreshCount = 0
+
+  const refresh = async () => {
+    try {
+      const res = await getAppVoById({ id: appInfo.value?.id || appId.value })
+      if (res.data.code === 0 && res.data.data) {
+        const newAppName = res.data.data.appName
+        if (newAppName && newAppName !== initialAppName.value) {
+          appInfo.value = { ...appInfo.value, ...res.data.data }
+          clearNameRefreshTimer()
+          return
+        }
+      }
+    } catch (error) {
+      console.error('刷新应用名称失败：', error)
+    }
+
+    nameRefreshCount++
+    if (nameRefreshCount >= MAX_NAME_REFRESH_COUNT) {
+      clearNameRefreshTimer()
+      return
+    }
+
+    nameRefreshTimer = window.setTimeout(refresh, NAME_REFRESH_INTERVAL)
+  }
+
+  nameRefreshTimer = window.setTimeout(refresh, NAME_REFRESH_INTERVAL)
+}
+
+// 清理应用名称轮询计时器
+const clearNameRefreshTimer = () => {
+  if (nameRefreshTimer !== undefined) {
+    window.clearTimeout(nameRefreshTimer)
+    nameRefreshTimer = undefined
+  }
+}
+
 // 获取应用信息
 const fetchAppInfo = async () => {
   const id = route.params.id as string
@@ -1536,6 +1705,9 @@ const fetchAppInfo = async () => {
     const res = await getAppVoById({ id })
     if (res.data.code === 0 && res.data.data) {
       appInfo.value = res.data.data
+
+      // 启动名称轮询，等待 AI 异步生成应用名称
+      startAppNameRefresh()
 
       // 先加载对话历史
       await loadChatHistory()
@@ -1736,6 +1908,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
   const writtenFiles: string[] = []
   let pendingFile = ''
   let devServerUrl = ''
+  let resourceCollectionStatus = ''
 
   // 重置实时代码展示
   liveCode.value = ''
@@ -1749,6 +1922,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
   // 计算预期的新版本号：后端创建版本 = 当前最新版本 + 1
   // 后端在收到 SSE 请求时才创建版本，这里提前算好避免时序问题
   const preGenVersion = appVersions.value[0]?.version
+  const isModification = !!preGenVersion
   if (preGenVersion) {
     generatingVersion.value = preGenVersion + 1
   } else {
@@ -1775,17 +1949,28 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       const msg = messages.value[aiMessageIndex]
       if (!msg) return
 
-      // 更新 streamInfo（文件列表 + 进度阶段）
+      // 更新 streamInfo（文件列表 + 进度阶段 + 任务步骤）
+      const codeGenType = appInfo.value?.codeGenType
       msg.streamInfo = {
         totalChars: aiText.length,
         stage: getStreamStage(aiText.length, writtenFiles.length),
-        currentAction: pendingFile
+        currentAction: resourceCollectionStatus || (pendingFile
           ? `正在写入 ${pendingFile}`
           : writtenFiles.length > 0
             ? `已写入 ${writtenFiles.length} 个文件`
-            : '正在生成代码',
+            : '正在生成代码'),
         fileNames: writtenFiles.slice(-4),
         updatedAt: new Date().toISOString(),
+        tasks: buildGenerationTasks(
+          codeGenType,
+          resourceCollectionStatus,
+          aiText.length,
+          pendingFile,
+          writtenFiles,
+          devServerUrl,
+          false,
+          isModification,
+        ),
       }
 
       // 实时代码：更新 liveCode 和 liveFiles 供中间面板显示
@@ -1812,13 +1997,16 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         }
       }
 
-      msg.content = buildGenerationStatusMessage(
+      const generationStatus = buildGenerationStatusMessage(
         aiText,
         pendingFile,
         writtenFiles,
         devServerUrl,
         generatingMessageTick,
       )
+      msg.content = resourceCollectionStatus
+        ? `⏳ ${resourceCollectionStatus}\n\n${generationStatus}`
+        : generationStatus
       msg.loading = !streamCompleted
       scrollToBottom()
       renderTimer = undefined
@@ -1866,6 +2054,16 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
           msg.streamInfo.stage = generationSteps.length - 1
           msg.streamInfo.currentAction = '生成完成'
           msg.streamInfo.updatedAt = new Date().toISOString()
+          msg.streamInfo.tasks = buildGenerationTasks(
+            appInfo.value?.codeGenType,
+            resourceCollectionStatus,
+            aiText.length,
+            '',
+            writtenFiles,
+            devServerUrl,
+            true,
+            isModification,
+          )
         }
       }
 
@@ -1953,14 +2151,21 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       const parsed = parseSseMessage(chunk)
 
       switch (parsed.type) {
+        case 'resource_collection_progress':
+          resourceCollectionStatus = parsed.data
+          scheduleFlush()
+          break
+
         case 'ai_response':
           // AI 文本回复 — 追加到文本
+          resourceCollectionStatus = ''
           aiText += parsed.data
           scheduleFlush()
           break
 
         case 'tool_request':
           // AI 开始写文件
+          resourceCollectionStatus = ''
           if (parsed.filePath) {
             pendingFile = parsed.filePath
           }
@@ -1974,6 +2179,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
         case 'tool_executed': {
           // 文件写入完成
+          resourceCollectionStatus = ''
           const filePath = parsed.filePath
           if (filePath) {
             if (!writtenFiles.includes(filePath)) {
@@ -1986,10 +2192,11 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
             if (parsed.fileContent) {
               fileContentMap.value.set(filePath, parsed.fileContent)
               fileContentMap.value = new Map(fileContentMap.value)
-            } else {
-              // 后端可能已将文件写入磁盘，从 API 拉取内容
-              fetchLiveFileContent(filePath)
             }
+            // 工具事件携带的是模型请求参数；回读落盘文件才能展示服务端清洗后的真实代码。
+            fileContentMap.value.delete(filePath)
+            fileContentMap.value = new Map(fileContentMap.value)
+            fetchLiveFileContent(filePath)
           }
           scheduleFlush()
           break
@@ -2325,7 +2532,6 @@ const handleImageUpload = async (event: Event) => {
       }
       const formData = new FormData()
       formData.append('file', file)
-      const baseURL = request.defaults.baseURL || API_BASE_URL
       const response = await request.post('/file/upload-image', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 30000,
@@ -2379,7 +2585,6 @@ const handleFileUpload = async (event: Event) => {
       }
       const formData = new FormData()
       formData.append('file', file)
-      const baseURL = request.defaults.baseURL || API_BASE_URL
       const response = await request.post('/file/upload-file', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 60000,
@@ -2423,7 +2628,6 @@ const handlePaste = async (event: ClipboardEvent) => {
       }
       const formData = new FormData()
       formData.append('file', file)
-      const baseURL = request.defaults.baseURL || API_BASE_URL
       imageUploading.value = true
       try {
         const response = await request.post('/file/upload-image', formData, {
@@ -2449,7 +2653,6 @@ const handlePaste = async (event: ClipboardEvent) => {
       }
       const formData = new FormData()
       formData.append('file', file)
-      const baseURL = request.defaults.baseURL || API_BASE_URL
       fileUploading.value = true
       try {
         const response = await request.post('/file/upload-file', formData, {
@@ -2495,7 +2698,7 @@ const toggleInlineEdit = () => {
       doc.body.style.outline = ''
       inlineEditing.value = false
     }
-  } catch (e) {
+  } catch {
     message.error('无法编辑此页面，可能是跨域限制')
   }
 }
@@ -2548,6 +2751,7 @@ onUnmounted(() => {
   if (previewLoadTimer !== undefined) {
     window.clearTimeout(previewLoadTimer)
   }
+  clearNameRefreshTimer()
   // EventSource 会在组件卸载时自动清理
 })
 </script>
@@ -2593,6 +2797,11 @@ onUnmounted(() => {
 
 .app-name {
   margin: 0;
+  min-width: 0;
+  max-width: min(48vw, 620px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -2938,6 +3147,84 @@ onUnmounted(() => {
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.generation-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.generation-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid transparent;
+  transition: all 0.2s var(--ease-out);
+}
+
+.generation-task.pending {
+  color: var(--text-3);
+  opacity: 0.72;
+}
+
+.generation-task.active {
+  border-color: rgba(14, 165, 233, 0.22);
+  background: rgba(14, 165, 233, 0.06);
+  color: var(--text-1);
+}
+
+.generation-task.completed {
+  color: var(--text-2);
+}
+
+.generation-task .task-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 14px;
+  margin-top: 1px;
+}
+
+.generation-task.pending .task-icon {
+  color: var(--text-3);
+}
+
+.generation-task.active .task-icon {
+  color: var(--brand-600);
+}
+
+.generation-task.completed .task-icon {
+  color: #16a34a;
+}
+
+.generation-task .task-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.generation-task .task-label {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.generation-task .task-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 2px;
+  opacity: 0.86;
 }
 
 .message-avatar {

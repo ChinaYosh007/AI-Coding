@@ -613,5 +613,53 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         return aiCodeGeneratorFacade.generateAppName(initPrompt);
     }
 
+    @Override
+    public void generateAppNameAsync(Long appId, String initPrompt, String expectedAppName) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                String generatedAppName = generateAppName(initPrompt);
+                if (StrUtil.isBlank(generatedAppName)) {
+                    return;
+                }
+
+                String appName = normalizeAppName(generatedAppName);
+                if (StrUtil.isBlank(appName)) {
+                    return;
+                }
+
+                App currentApp = getById(appId);
+                if (currentApp == null || !StrUtil.equals(currentApp.getAppName(), expectedAppName)) {
+                    return;
+                }
+
+                App updateApp = new App();
+                updateApp.setId(appId);
+                updateApp.setAppName(appName);
+                updateById(updateApp);
+            } catch (Exception e) {
+                log.warn("异步生成应用名称失败，保留默认名称，appId={}", appId, e);
+            }
+        });
+    }
+
+    private String normalizeAppName(String generatedAppName) {
+        String appName = generatedAppName.trim();
+        if (appName.startsWith("{") && appName.endsWith("}")) {
+            try {
+                appName = JSONUtil.parseObj(appName).getStr("appName");
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        if (StrUtil.isBlank(appName)) {
+            return null;
+        }
+        appName = appName.replaceAll("\\s+", " ").trim();
+        if (appName.isBlank() || appName.matches("(?is).*?(<!doctype|<html|<script|\\\"code\\\"\\s*:|\\b(function|const|import)\\b).*")) {
+            return null;
+        }
+        return appName.length() > 16 ? appName.substring(0, 16) : appName;
+    }
+
 
 }

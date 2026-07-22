@@ -58,7 +58,7 @@ public interface AiCodeGeneratorService {
     @InputGuardrails(PromptSafetyInputGuardrail.class)
     String generateHtmlCodeModify(@MemoryId Long appId, @UserMessage String userMessage);
 
-    @SystemMessage("根据初始化提示生成6个字应用名称，以JSON格式返回，例如：{\"appName\": \"示例应用\"}")
+    @SystemMessage("根据初始化提示生成 2 到 16 个中文字的应用名称。必须只返回一个 JSON 对象，格式严格为：{\"appName\":\"示例应用\"}，禁止返回代码、HTML、Markdown 或解释。")
     @InputGuardrails(PromptSafetyInputGuardrail.class)
     String generateAppName(String initPrompt);
     @SystemMessage("总结应用聊天历史记录，以JSON格式返回，例如：{\"summary\": \"用户询问了如何创建一个TODO应用，开发人员提供了详细步骤和代码示例。\"}")

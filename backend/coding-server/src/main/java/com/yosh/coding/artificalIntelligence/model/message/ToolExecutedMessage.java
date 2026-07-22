@@ -1,6 +1,7 @@
 package com.yosh.coding.artificalIntelligence.model.message;
 
 import com.yosh.model.enums.StreamMessageTypeEnum;
+import com.yosh.coding.core.saver.PlaceholderImageUrlSanitizer;
 import dev.langchain4j.service.tool.ToolExecution;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -26,7 +27,9 @@ public class ToolExecutedMessage extends StreamMessage {
         super(StreamMessageTypeEnum.TOOL_EXECUTED.getValue());
         this.id = toolExecution.request().id();
         this.name = toolExecution.request().name();
-        this.arguments = toolExecution.request().arguments();
+        this.arguments = "writeToFile".equals(toolExecution.request().name())
+                ? PlaceholderImageUrlSanitizer.sanitize(toolExecution.request().arguments())
+                : toolExecution.request().arguments();
         this.result = toolExecution.result();
     }
 }

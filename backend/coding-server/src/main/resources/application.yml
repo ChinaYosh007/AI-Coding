@@ -59,9 +59,9 @@ logging:
 langchain4j:
   open-ai:
     chat-model:
-      base-url: ${AGENT_URL}
+      base-url: ${AGENT_URL:https://api.deepseek.com}
       api-key: ${API_KEY}
-      model-name: ${CHAT_MODEL}
+      model-name: ${CHAT_MODEL:deepseek-v4-flash}
       log-requests: true
       log-responses: true
       max-tokens: 8192
@@ -69,34 +69,34 @@ langchain4j:
       response-format: json_object
       max-retries: 3
     tool-calling-chat-model:
-      base-url: ${AGENT_URL}
+      base-url: ${AGENT_URL:https://api.deepseek.com}
       api-key: ${REASONING_API_KEY}
-      model-name: ${REASONING_MODEL}
+      model-name: ${REASONING_MODEL:deepseek-v4-pro}
       max-tokens: 8192
       temperature: 0.1
       log-requests: true
       log-responses: true
     streaming-chat-model:
-      base-url: ${AGENT_URL}
+      base-url: ${AGENT_URL:https://api.deepseek.com}
       api-key: ${API_KEY}
-      model-name: ${STREAM_MODEL}
+      model-name: ${STREAM_MODEL:deepseek-v4-flash}
       max-tokens: 8192
       log-requests: true
       log-responses: true
         # 推理 AI 模型配置（用于复杂的推理任务）
     reasoning-streaming-chat-model:
-      base-url: ${AGENT_URL}
+      base-url: ${AGENT_URL:https://api.deepseek.com}
       api-key: ${REASONING_API_KEY}
-      model-name: ${REASONING_MODEL}
+      model-name: ${REASONING_MODEL:deepseek-v4-pro}
       max-tokens: 8192
       temperature: 0.1
       log-requests: true
       log-responses: true
         # 智能路由 AI 模型配置（用于简单的分类任务）
     routing-chat-model:
-      base-url: ${AGENT_URL}
+      base-url: ${AGENT_URL:https://api.deepseek.com}
       api-key: ${ROUTING_API_KEY}
-      model-name: ${ROUTING_MODEL}
+      model-name: ${ROUTING_MODEL:deepseek-v4-flash}
       log-requests: true
       log-responses: true
 

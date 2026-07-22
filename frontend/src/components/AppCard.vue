@@ -47,7 +47,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { MessageOutlined, GlobalOutlined, StarFilled } from '@ant-design/icons-vue'
-import { getDisplayNameFromText } from '@/utils/appNameParser'
+import { getDisplayNameFromText, getFallbackAppName } from '@/utils/appNameParser'
 
 interface Props {
   app: API.AppVO
@@ -66,7 +66,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<Emits>()
 
 const displayAppName = computed(() => {
-  return getDisplayNameFromText(props.app.appName) || getDisplayNameFromText(props.app.initPrompt) || '未命名应用'
+  return getDisplayNameFromText(props.app.appName) || getFallbackAppName(props.app.initPrompt)
 })
 
 const displayAuthorName = computed(() => {

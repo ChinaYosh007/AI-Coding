@@ -3,6 +3,7 @@ package com.yosh.coding.artificalIntelligence.skill;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
+import com.yosh.coding.core.saver.PlaceholderImageUrlSanitizer;
 import com.yosh.model.constants.AppConstant;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -10,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 
 @Slf4j
 public class WriteToFile extends BaseTool {
@@ -17,11 +19,17 @@ public class WriteToFile extends BaseTool {
 
     private final Long appId;
     private final Long version;
+    private final List<String> resourceUrls;
     private int invocationCount = 0;
 
     public WriteToFile(Long appId, Long version) {
+        this(appId, version, List.of());
+    }
+
+    public WriteToFile(Long appId, Long version, List<String> resourceUrls) {
         this.appId = appId;
         this.version = version;
+        this.resourceUrls = resourceUrls == null ? List.of() : List.copyOf(resourceUrls);
     }
 
     @Tool("Write complete UTF-8 source text to a relative project file path. Use this tool to create or replace files under src/.")
@@ -48,7 +56,7 @@ public class WriteToFile extends BaseTool {
             }
             // 清理 content 中的 UTF-8 BOM 字符（大模型接口有时会在返回内容的开头带上 ﻿）
             // BOM 会导致 Vite/PostCSS 的 JSON 解析器报 "Unexpected token '﻿'" 错误
-            String cleanContent = removeBOM(content);
+            String cleanContent = PlaceholderImageUrlSanitizer.sanitize(removeBOM(content), resourceUrls);
             Path path = Paths.get(relativePath);
             if(!path.isAbsolute()){
                 String DirName = AppConstant.VUE_PREFIX + appId + "_" + version;

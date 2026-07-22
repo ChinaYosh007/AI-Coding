@@ -3,14 +3,15 @@ package com.yosh.coding.core;
 import com.yosh.coding.artificalIntelligence.model.HtmlCodeResult;
 import com.yosh.coding.artificalIntelligence.model.MultiFileCodeResult;
 import com.yosh.coding.core.parser.CodeParserExcutor;
-import com.yosh.coding.core.parser.MultiFIleCodeParser;
+import com.yosh.coding.core.saver.MultiFileCodeTemplate;
+import com.yosh.exception.BusinessException;
 import com.yosh.model.enums.CodeGenTypeEnum;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-
-@SpringBootTest
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CodeParserTest {
 
@@ -73,5 +74,40 @@ class CodeParserTest {
         assertNotNull(result.getHtmlCode());
         assertNotNull(result.getCssCode());
         assertNotNull(result.getJsCode());
+    }
+
+    @Test
+    void parseMultiFileCodeWithFileNameLabelsAndCrLf() {
+        String codeContent = "```index.html\r\n<html><body>页面</body></html>\r\n```\r\n"
+                + "```style.css\r\nbody { color: #222; }\r\n```\r\n"
+                + "```script.js\r\nconsole.log('ready');\r\n```";
+
+        MultiFileCodeResult result = (MultiFileCodeResult) CodeParserExcutor.executeCode(
+                codeContent, CodeGenTypeEnum.MULTI_FILE);
+
+        assertEquals("<html><body>页面</body></html>", result.getHtmlCode());
+        assertEquals("body { color: #222; }", result.getCssCode());
+        assertEquals("console.log('ready');", result.getJsCode());
+    }
+
+    @Test
+    void rejectTruncatedMultiFileResponseBeforeWritingAnyFile() {
+        String truncatedContent = """
+                ```html
+                <html><link rel="stylesheet" href="style.css"></html>
+                ```
+                ```css
+                body {
+                    color: #222;
+                """;
+        MultiFileCodeResult result = (MultiFileCodeResult) CodeParserExcutor.executeCode(
+                truncatedContent, CodeGenTypeEnum.MULTI_FILE);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> new MultiFileCodeTemplate().saveCode(result, -1L, -1L));
+
+        assertTrue(exception.getMessage().contains("style.css"));
+        assertTrue(exception.getMessage().contains("script.js"));
     }
 }

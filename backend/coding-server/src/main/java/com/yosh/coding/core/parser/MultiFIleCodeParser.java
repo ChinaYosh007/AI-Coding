@@ -1,6 +1,8 @@
 package com.yosh.coding.core.parser;
 
 import com.yosh.coding.artificalIntelligence.model.MultiFileCodeResult;
+import com.yosh.exception.BusinessException;
+import com.yosh.exception.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.regex.Matcher;
@@ -8,12 +10,18 @@ import java.util.regex.Pattern;
 
 @Slf4j
 public class MultiFIleCodeParser implements  CodeParser<MultiFileCodeResult>{
-    private static final Pattern HTML_CODE_PATTERN = Pattern.compile("```html\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
-    private static final Pattern CSS_CODE_PATTERN = Pattern.compile("```css\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
-    private static final Pattern JS_CODE_PATTERN = Pattern.compile("```(?:js|javascript)\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HTML_CODE_PATTERN = Pattern.compile(
+            "```[ \\t]*(?:html|index\\.html)[ \\t]*\\R([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CSS_CODE_PATTERN = Pattern.compile(
+            "```[ \\t]*(?:css|style\\.css)[ \\t]*\\R([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern JS_CODE_PATTERN = Pattern.compile(
+            "```[ \\t]*(?:js|javascript|script\\.js)[ \\t]*\\R([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
 
     @Override
     public MultiFileCodeResult parseCode(String content) {
+        if (content == null || content.isBlank()) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "AI 返回的多文件代码为空，请重试");
+        }
         MultiFileCodeResult result = new MultiFileCodeResult();
         log.debug("Parsing code content length: {}", content.length());
 
@@ -26,6 +34,10 @@ public class MultiFIleCodeParser implements  CodeParser<MultiFileCodeResult>{
                 htmlCode != null ? htmlCode.length() : 0,
                 cssCode != null ? cssCode.length() : 0,
                 jsCode != null ? jsCode.length() : 0);
+        if (htmlCode == null || cssCode == null || jsCode == null) {
+            log.warn("Incomplete multi-file response: html={}, css={}, js={}",
+                    htmlCode != null, cssCode != null, jsCode != null);
+        }
 
         // 设置HTML代码
         if (htmlCode != null && !htmlCode.trim().isEmpty()) {

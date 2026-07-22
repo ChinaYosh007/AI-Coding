@@ -55,8 +55,17 @@ public class LogoGeneratorSkill {
                 }
             }
         } catch (Exception e) {
-            log.error("生成 Logo 失败: {}", e.getMessage(), e);
+            // Logo 是可选资源，外部图像服务断流时由上层资源流程降级，避免中断代码生成。
+            log.warn("Logo 生成服务暂不可用，已跳过: {}", conciseMessage(e));
         }
         return logoList;
+    }
+
+    private String conciseMessage(Exception exception) {
+        String message = exception.getMessage();
+        if (StrUtil.isBlank(message)) {
+            return exception.getClass().getSimpleName();
+        }
+        return StrUtil.maxLength(message.replaceAll("\\s+", " "), 240);
     }
 }
