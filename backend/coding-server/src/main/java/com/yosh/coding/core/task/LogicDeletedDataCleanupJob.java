@@ -36,7 +36,7 @@ public class LogicDeletedDataCleanupJob {
 
     private static final String LOCK_KEY = "job:logic-deleted-data-cleanup";
     private static final String GOOD_APP_CACHE = "good_app_page";
-    private static final int RETENTION_DAYS = 0;
+    private static final int RETENTION_DAYS = 30;
     private static final int BATCH_SIZE = 1000;
     private static final int MAX_BATCH_COUNT = 100;
 
