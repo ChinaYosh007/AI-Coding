@@ -319,14 +319,25 @@
               </aside>
               <section class="code-viewer">
                 <div class="code-viewer-header">
-                  <span class="code-viewer-file">{{ currentLiveFile?.name || '选择文件查看代码' }}</span>
+                  <div class="code-viewer-header-left">
+                    <FileTextOutlined class="code-file-icon" />
+                    <span class="code-viewer-file">{{ currentLiveFile?.name || '选择文件查看代码' }}</span>
+                    <span v-if="currentLiveFile?.content" class="code-viewer-badge">
+                      {{ currentLiveFile.content.split('\n').length }} 行
+                    </span>
+                  </div>
+                  <div v-if="currentLiveFile?.content" class="code-viewer-header-right">
+                    <button class="code-copy-btn" title="复制代码" type="button" @click="handleCopyLiveCode">
+                      <CopyOutlined /> 复制源码
+                    </button>
+                  </div>
                 </div>
                 <div v-if="!currentLiveFile" class="code-viewer-placeholder">
-                  <p>AI 正在生成代码，请稍候…</p>
+                  <p>正在连接神经流，等待文件写入…</p>
                 </div>
                 <div v-else-if="!currentLiveFile.content" class="code-viewer-generating">
                   <a-spin size="small" />
-                  <p>代码生成中…</p>
+                  <p>实时编译写入代码中…</p>
                 </div>
                 <pre v-else class="code-viewer-content"><code class="hljs" v-html="highlightedCode"></code></pre>
               </section>
@@ -876,6 +887,36 @@ const currentSourceFile = computed(() => {
   return sourceFiles.value.find((file) => file.name === activeSourceFile.value)
 })
 
+// 过滤并清洗代码内容（剥离 ```html 等 Markdown 标记及前导自然语言分析文本）
+const cleanCodeContent = (rawContent: string, fileName: string): string => {
+  if (!rawContent) return ''
+  let content = rawContent.trim()
+
+  // 1. 如果包含了成对的 ``` 标记，提取块内核心代码
+  const fenceRegex = /```(?:[a-zA-Z0-9_-]+)?\s*\n([\s\S]*?)(?:```|$)/i
+  const match = content.match(fenceRegex)
+  if (match && match[1] && match[1].trim()) {
+    return match[1].trim()
+  }
+
+  // 2. 如果包含 ``` 开头但尚未闭合，剥离前面的 Markdown 描述文本及 ```xxx 这一行
+  const unclosedRegex = /^[\s\S]*?```(?:[a-zA-Z0-9_-]+)?\s*\n([\s\S]*)$/i
+  const unclosedMatch = content.match(unclosedRegex)
+  if (unclosedMatch && unclosedMatch[1]) {
+    return unclosedMatch[1].trim()
+  }
+
+  // 3. 如果开头包含了自然语言分析（如 生成计划：...），过滤到 <!DOCTYPE 或 <html 或代码起点
+  if (content.includes('<!DOCTYPE') || content.includes('<html')) {
+    const htmlIdx = content.search(/<!DOCTYPE|<html/i)
+    if (htmlIdx > 0) {
+      content = content.substring(htmlIdx)
+    }
+  }
+
+  return content.trim()
+}
+
 // 实时代码：优先从 fileContentMap 取内容，HTML 模式回退到 liveCode
 const currentLiveFile = computed(() => {
   const name = activeLiveFile.value || liveFiles.value[0]
@@ -883,15 +924,22 @@ const currentLiveFile = computed(() => {
   // Vue 模式：从 fileContentMap 取实际文件内容
   const mappedContent = fileContentMap.value.get(name)
   if (mappedContent) {
-    return { name, content: mappedContent }
+    return { name, content: cleanCodeContent(mappedContent, name) }
   }
   // HTML/多文件模式：aiText 就是代码
   if (!isVueGenMode.value && liveCode.value) {
-    return { name, content: liveCode.value }
+    return { name, content: cleanCodeContent(liveCode.value, name) }
   }
   // Vue 模式但该文件内容尚未加载：返回空，模板显示"正在生成..."
   return { name, content: '' }
 })
+
+const handleCopyLiveCode = () => {
+  if (currentLiveFile.value?.content) {
+    navigator.clipboard.writeText(currentLiveFile.value.content)
+    message.success(`已复制 ${currentLiveFile.value.name} 源码到剪贴板`)
+  }
+}
 
 // 根据文件扩展名推断 highlight.js 语言
 const getLanguageFromFileName = (fileName: string): string => {
@@ -1388,32 +1436,83 @@ const getStreamStage = (totalChars: number, fileCount: number) => {
   return 0
 }
 
-const generationStatusMessages = [
-  [
-    '已收到需求，正在拆解页面结构和内容模块。',
-    '正在理解你的描述，规划导航、主体内容和预览入口。',
-    '正在整理页面文案与演示数据，让内容更完整。',
-    '正在准备生成文件，右侧预览会在服务就绪后自动更新。',
-  ],
-  [
-    '正在生成页面骨架，导航、内容区和页脚会一起整理。',
-    '正在补充核心模块与页面结构，请稍等。',
-    '正在把需求转成可运行的前端代码。',
-    '正在组织页面区块顺序，避免内容显得单薄。',
-  ],
-  [
-    '页面主体已经生成，正在完善样式和交互细节。',
-    '正在优化按钮、卡片和响应式布局。',
-    '正在补充预览体验，等待开发服务热加载完成。',
-    '正在检查资源路径和页面状态，确保右侧可以加载。',
-  ],
-  [
-    '正在完成最后的代码整理，后端会启动预览服务。',
-    '正在等待 npm run dev 完成，服务就绪后将自动加载。',
-    '正在收尾生成文件和热加载地址。',
-    '即将刷新右侧预览，你也可以稍后手动重新加载。',
-  ],
-]
+// 根据生成模式获取阶段严谨状态文案
+const getModeStatusMessages = (codeGenType: string | undefined, stage: number) => {
+  const isVue = codeGenType === 'vue_project'
+  const isMultiFile = codeGenType === 'multi_file'
+
+  const stages: Record<number, string[]> = {
+    0: [
+      '已接收需求规范，正在进行 DOM 架构拆解与组件依赖规划。',
+      '正在解析需求描述，规划导航拓扑、主体逻辑与渲染出口。',
+      '正在组织页面文案模型与初始化模拟数据集。',
+      '正在准备工程文件写入，沙箱渲染环境即将就绪。',
+    ],
+    1: isVue
+      ? [
+          '正在编译 Vue 架构骨架，同步构建组件层次与 SFC 模组。',
+          '正在执行 Vue 单文件组件合成与 TypeScript 依赖解构。',
+          '正在将业务需求编译为高性能 Vue 模组。',
+          '正在校验组件 props 属性树与状态响应式边界。',
+        ]
+      : isMultiFile
+        ? [
+            '正在解构多文件模块，分离 HTML 骨架、CSS 样式表与 JS 逻辑。',
+            '正在编译多文件源码，组织模块化资源链接。',
+            '正在构建标准三文件结构（HTML/CSS/JS），注入样式逻辑。',
+            '正在校验 HTML 结构语义化与 CSS 响应式盒模型。',
+          ]
+        : [
+            '正在编译原生 HTML 页面骨架，同步整合内联样式与脚本。',
+            '正在组织 DOM 节点层次与页面视觉流布局。',
+            '正在将业务需求编译为标准 HTML5 源码。',
+            '正在校验页面 DOM 结构与跨端响应式适配。',
+          ],
+    2: isVue
+      ? [
+          'Vue 模组构架生成完毕，正在装载组件样式与生命周期钩子。',
+          '正在调优 Pinia 状态管理与路由跳转逻辑。',
+          '正在构建热更新连通性，等待实时开发服务回应。',
+          '正在校验组件样式作用域 (Scoped CSS) 与过渡动画。',
+        ]
+      : isMultiFile
+        ? [
+            '多文件源码构建完毕，正在调优 CSS 动画与 JS 事件侦听。',
+            '正在关联 style.css 与 script.js 脚本逻辑。',
+            '正在测试 JS DOM 交互机制与跨终端触控响应。',
+            '正在优化资源加载顺序与页面绘制性能。',
+          ]
+        : [
+            'HTML 页面构建完毕，正在调优 CSS 视效与 JS 交互逻辑。',
+            '正在注入交互响应事件与微动效控制。',
+            '正在校验 CSS 渐变高光与响应式弹性排版。',
+            '正在收尾页面样式修饰与 DOM 事件绑定。',
+          ],
+    3: isVue
+      ? [
+          '工程源码写入完毕，正在启动本地 Node/Vite 开发服务器。',
+          '正在执行开发服务器热重载 (npm run dev)，建立 HMR 通道。',
+          '正在完成打包产物提取与预览地址绑定校验。',
+          '即将在右侧沙箱窗口自动热加载 Vue 应用。',
+        ]
+      : isMultiFile
+        ? [
+            '多文件源码写入完毕，正在编译整合并装载沙箱。',
+            '正在生成静态资源打包关联，准备渲染预览。',
+            '正在完成 HTML/CSS/JS 沙箱环境装载。',
+            '即将刷新右侧沙箱，呈现多文件应用最新页面。',
+          ]
+        : [
+            'HTML 页面源码写入完毕，正在装载预览沙箱。',
+            '正在进行 DOM 渲染树解析与资源链接校验。',
+            '正在完成 HTML5 沙箱环境装载。',
+            '即将刷新右侧沙箱，呈现原生页面最新效果。',
+          ],
+  }
+
+  const list = stages[stage] || stages[0]
+  return list
+}
 
 const getRotatingMessage = (messages: string[], tick: number) => {
   return messages[tick % messages.length]
@@ -1442,36 +1541,36 @@ const buildGenerationTasks = (
   if (!isModification) {
     baseTasks.push({
       id: 'resource_collection',
-      label: '资源收集',
-      description: '并行搜集图片、插画和 Logo',
+      label: '资源检索与绑定',
+      description: '并行检索并绑定标准矢量图标与图片资源',
       status: hasResources ? 'active' : 'pending',
     })
   }
   baseTasks.push({
     id: 'code_generation',
-    label: isModification ? '修改文件' : isVue ? '生成文件' : isMultiFile ? '生成多文件' : '生成代码',
+    label: isModification ? '增量修改源码' : isVue ? '构建 Vue 模组工程' : isMultiFile ? '编译多文件架构' : '编译代码构架',
     description: isModification
-      ? '读取现有代码并按要求增量修改'
+      ? '解析既有源码并按需求约束增量更新'
       : isVue
-        ? '正在写入 Vue 组件与配置文件'
+        ? '正在写入 SFC 单文件组件与工程配置'
         : isMultiFile
-          ? '正在写入 HTML/CSS/JS'
-          : '正在生成单文件页面',
+          ? '正在编译并写入 HTML/CSS/JS 源码'
+          : '正在编译并生成单文件 HTML 构架',
     status: 'pending',
   })
 
   if (isVue) {
     baseTasks.push({
       id: 'dev_server',
-      label: '启动开发服务器',
-      description: '执行 npm run dev 并返回预览地址',
+      label: '启动沙箱开发服务',
+      description: '执行开发服务器实时热编译 (npm run dev)',
       status: 'pending',
     })
   }
   baseTasks.push({
     id: 'preview_ready',
-    label: '预览就绪',
-    description: isVue ? '启动开发服务器并加载右侧预览' : '右侧预览加载完成',
+    label: '沙箱渲染就绪',
+    description: isVue ? '开发服务器已联通，热载入沙箱页面' : '右侧沙箱界面渲染完成',
     status: 'pending',
   })
 
@@ -1519,30 +1618,56 @@ const buildGenerationStatusMessage = (
   writtenFiles: string[],
   devServerUrl: string,
   tick: number,
+  codeGenType: string | undefined,
   completed = false,
 ) => {
+  const isVue = codeGenType === 'vue_project'
+  const isMultiFile = codeGenType === 'multi_file'
+
   if (completed) {
-    const summary = writtenFiles.length > 0 ? `本次已生成 ${writtenFiles.length} 个文件。` : '本次生成已完成。'
-    return devServerUrl
-      ? `${summary}\n\n预览服务已启动，右侧已切换到最新热加载页面。你可以继续描述修改需求。`
-      : `${summary}\n\n暂未收到热加载地址，已使用静态预览兜底。你可以点击右侧“重新加载”刷新页面。`
+    const summary = writtenFiles.length > 0 ? `本次已完成 ${writtenFiles.length} 个文件编译写入。` : '本次代码构建已完成。'
+    if (isVue) {
+      return devServerUrl
+        ? `${summary}\n\n沙箱开发服务已联通，右侧热重载页面已自动重载。你可以继续提出增量修改需求。`
+        : `${summary}\n\n静态源码已编译完成，你可以通过右侧沙箱或代码查看器检查产物。`
+    }
+    return `${summary}\n\n右侧沙箱已装载最新代码，你可以继续提出增量修改需求。`
   }
 
   const stage = getStreamStage(aiText.length, writtenFiles.length)
-  const lines = [getRotatingMessage(generationStatusMessages[stage], tick)]
+  const modeMessages = getModeStatusMessages(codeGenType, stage)
+  const lines = [getRotatingMessage(modeMessages, tick)]
+
   if (pendingFile) {
-    lines.push(`正在处理：\`${pendingFile}\``)
+    lines.push(`正在编译写入：\`${pendingFile}\``)
   } else if (writtenFiles.length > 0) {
-    lines.push(`已完成文件：${writtenFiles.length} 个`)
+    lines.push(`已编译文件：${writtenFiles.length} 个`)
   }
   if (writtenFiles.length > 0) {
     lines.push(`最近完成：${writtenFiles.slice(-3).map((fileName) => `\`${fileName}\``).join('、')}`)
   }
-  lines.push(
-    devServerUrl
-      ? '开发服务器已就绪，右侧预览正在加载最新页面。'
-      : '后端完成 npm run dev 并返回地址后，右侧会自动加载。',
-  )
+
+  // 根据生成模式定制底端渲染状态指示
+  if (isVue) {
+    lines.push(
+      devServerUrl
+        ? '沙箱开发服务 (npm run dev) 已就绪，右侧热加载页面自动重载。'
+        : '正在启动开发服务器并同步 HMR 地址，右侧沙箱将自动渲染。',
+    )
+  } else if (isMultiFile) {
+    lines.push(
+      writtenFiles.length > 0
+        ? '多文件源码编译完成，右侧沙箱已自动装载。'
+        : '正在编译 HTML/CSS/JS 多文件架构，右侧沙箱即将渲染。',
+    )
+  } else {
+    lines.push(
+      aiText.length > 0
+        ? '单文件 HTML 构架已生成，右侧沙箱已同步载入。'
+        : '正在编译单文件 HTML 结构，右侧沙箱即将渲染。',
+    )
+  }
+
   return lines.join('\n\n')
 }
 
@@ -2003,6 +2128,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         writtenFiles,
         devServerUrl,
         generatingMessageTick,
+        appInfo.value?.codeGenType,
       )
       msg.content = resourceCollectionStatus
         ? `⏳ ${resourceCollectionStatus}\n\n${generationStatus}`
@@ -2048,7 +2174,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       // 最终刷新一次内容
       const msg = messages.value[aiMessageIndex]
       if (msg) {
-        msg.content = buildGenerationStatusMessage(aiText, '', writtenFiles, devServerUrl, generatingMessageTick, true)
+        msg.content = buildGenerationStatusMessage(aiText, '', writtenFiles, devServerUrl, generatingMessageTick, appInfo.value?.codeGenType, true)
         msg.loading = false
         if (msg.streamInfo) {
           msg.streamInfo.stage = generationSteps.length - 1
@@ -2263,7 +2389,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         const msg = messages.value[aiMessageIndex]
         if (msg) {
           msg.content = [
-            buildGenerationStatusMessage(aiText, pendingFile, writtenFiles, devServerUrl, generatingMessageTick),
+            buildGenerationStatusMessage(aiText, pendingFile, writtenFiles, devServerUrl, generatingMessageTick, appInfo.value?.codeGenType),
             '连接正在等待后端继续返回预览地址，请不要刷新页面。',
           ].join('\n\n')
           msg.loading = true
@@ -3049,23 +3175,29 @@ onUnmounted(() => {
 }
 
 .user-message .message-content {
-  background: var(--gradient-brand);
-  color: #fff;
-  border-bottom-right-radius: 6px;
-  box-shadow: 0 6px 18px rgba(14, 165, 233, 0.18);
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+  color: #ffffff;
+  border-radius: 16px 16px 4px 16px;
+  padding: 12px 18px;
+  font-size: 14px;
+  line-height: 1.6;
+  box-shadow: 0 6px 20px rgba(14, 165, 233, 0.22);
 }
 
 .ai-message .message-content {
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text-1);
-  border-bottom-left-radius: 6px;
-  padding: 10px 14px;
+  border-radius: 16px 16px 16px 4px;
+  padding: 14px 18px;
   box-shadow: var(--shadow-xs);
 }
 
 .user-message .message-meta {
-  color: rgba(255, 255, 255, 0.78);
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 500;
+  font-size: 11.5px;
+  margin-bottom: 4px;
 }
 
 .generation-activity {
@@ -3152,38 +3284,58 @@ onUnmounted(() => {
 .generation-tasks {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 10px;
-  background: rgba(248, 250, 252, 0.8);
-  border: 1px solid rgba(148, 163, 184, 0.14);
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(240, 249, 255, 0.9) 0%, rgba(248, 250, 252, 0.95) 100%);
+  border: 1px solid rgba(14, 165, 233, 0.22);
+  box-shadow: 0 4px 16px rgba(14, 165, 233, 0.06);
+  backdrop-filter: blur(12px);
 }
 
 .generation-task {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: #fff;
-  border: 1px solid transparent;
-  transition: all 0.2s var(--ease-out);
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  transition: all 0.3s var(--ease-out);
+  position: relative;
+  overflow: hidden;
 }
 
 .generation-task.pending {
   color: var(--text-3);
-  opacity: 0.72;
+  opacity: 0.65;
+  background: rgba(255, 255, 255, 0.6);
 }
 
 .generation-task.active {
-  border-color: rgba(14, 165, 233, 0.22);
-  background: rgba(14, 165, 233, 0.06);
-  color: var(--text-1);
+  border-color: var(--brand-500);
+  background: linear-gradient(135deg, #ffffff 0%, rgba(224, 242, 254, 0.8) 100%);
+  color: var(--brand-700);
+  box-shadow: 0 4px 14px rgba(14, 165, 233, 0.14);
+}
+
+.generation-task.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3.5px;
+  background: var(--gradient-brand);
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
 }
 
 .generation-task.completed {
-  color: var(--text-2);
+  color: #15803d;
+  background: linear-gradient(135deg, #ffffff 0%, rgba(240, 253, 244, 0.85) 100%);
+  border-color: rgba(34, 197, 94, 0.25);
 }
 
 .generation-task .task-icon {
@@ -3191,22 +3343,27 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  font-size: 14px;
+  width: 24px;
+  height: 24px;
+  font-size: 15px;
   margin-top: 1px;
+  border-radius: 50%;
 }
 
 .generation-task.pending .task-icon {
   color: var(--text-3);
+  background: rgba(241, 245, 249, 0.8);
 }
 
 .generation-task.active .task-icon {
   color: var(--brand-600);
+  background: rgba(14, 165, 233, 0.12);
+  animation: pulse-ring 1.8s infinite;
 }
 
 .generation-task.completed .task-icon {
   color: #16a34a;
+  background: rgba(34, 197, 94, 0.12);
 }
 
 .generation-task .task-body {
@@ -3215,16 +3372,17 @@ onUnmounted(() => {
 }
 
 .generation-task .task-label {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 13.5px;
+  font-weight: 700;
   line-height: 1.4;
+  letter-spacing: -0.01em;
 }
 
 .generation-task .task-desc {
   font-size: 12px;
-  line-height: 1.4;
-  margin-top: 2px;
-  opacity: 0.86;
+  line-height: 1.45;
+  margin-top: 3px;
+  opacity: 0.88;
 }
 
 .message-avatar {
@@ -4378,20 +4536,71 @@ onUnmounted(() => {
 .code-viewer-header {
   display: flex;
   align-items: center;
-  min-height: 38px;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--border);
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 0 16px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
   background: var(--surface-2);
+}
+
+.code-viewer-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.code-file-icon {
+  color: var(--brand-600);
+  font-size: 14px;
 }
 
 .code-viewer-file {
   min-width: 0;
   overflow: hidden;
   color: var(--text-1);
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.code-viewer-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--brand-600);
+  background: rgba(14, 165, 233, 0.08);
+  border: 1px solid rgba(14, 165, 233, 0.2);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.code-viewer-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.code-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.code-copy-btn:hover {
+  color: var(--brand-600);
+  border-color: var(--brand-400);
+  background: rgba(14, 165, 233, 0.06);
 }
 
 .code-viewer-placeholder {

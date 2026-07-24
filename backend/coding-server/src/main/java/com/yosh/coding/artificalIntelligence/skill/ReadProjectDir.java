@@ -1,15 +1,14 @@
 package com.yosh.coding.artificalIntelligence.skill;
 
 import cn.hutool.core.io.FileUtil;
-import cn.hutool.json.JSONObject;
-import com.yosh.model.constants.AppConstant;
+import cn.hutool.core.util.StrUtil;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
-import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 @Slf4j
@@ -36,55 +35,45 @@ public class ReadProjectDir  extends BaseTool{
     private static final Set<String> IGNORED_EXTENSIONS = Set.of(
             ".log", ".tmp", ".cache", ".lock"
     );
-    @Tool("Read project dir")
-    public String readProjectDir(@P("path") String relativePath) {
+    @Tool("List project files and return paths relative to the project root. Call this at most once before reading a target file.")
+    public String readProjectDir(@P("path - Relative directory path, use '.' for the project root") String relativePath) {
         try {
-
-            //逆向文件
-            String projectName = AppConstant.VUE_PREFIX + "_" + appId + "_" + version;
-            Path path = Path.of(projectName, relativePath);
-            if(!path.toFile().exists()){
+            Path projectRoot = getProjectRoot(appId, version);
+            String requestedPath = StrUtil.blankToDefault(relativePath, ".");
+            Path path = resolveProjectPath(appId, version, requestedPath);
+            if (!path.toFile().exists()) {
                 return "File does not exist: " + relativePath;
             }
-            StringBuilder content = new StringBuilder();
-            content.append("File content[项目文件结构]: ");
-            List<File> files = FileUtil.loopFiles(path.toFile(), file -> !shouldIgnore(file.getName()));
+            if (!path.toFile().isDirectory()) {
+                return "Path is not a directory: " + relativePath;
+            }
 
-            File root = Path.of(projectName).toFile();
+            List<File> files = FileUtil.loopFiles(path.toFile(),
+                    file -> !shouldIgnore(projectRoot, file.toPath()));
+            StringBuilder content = new StringBuilder("Project files:\n");
             files.stream()
-                    .sorted((f1,f2) ->{
-
-                        int dep1 = getRelativeDepth(root, f1);
-                        int dep2 = getRelativeDepth(root, f2);
-                        if(dep1 == dep2) {
-                            return f1.getName().compareTo(f2.getName());
-                        }
-                        return dep1 - dep2;
-                    })
-                    .forEach(file->{
-                        int dep = getRelativeDepth(root, file);
-                        content.append(" ").append(" ".repeat(dep * 2)).append(file.getName()).append("\n");
-                    });
+                    .map(file -> projectRoot.relativize(file.toPath().toAbsolutePath().normalize()))
+                    .sorted(Comparator.comparing(Path::toString))
+                    .forEach(file -> content.append("- ")
+                            .append(file.toString().replace('\\', '/'))
+                            .append('\n'));
             return content.toString();
         } catch (Exception e) {
-            log.error("Error reading file: {}", e.getMessage());
-            return "Error reading file: " + e.getMessage();
+            log.error("Error reading project directory: {}", e.getMessage());
+            return "Error reading project directory: " + e.getMessage();
         }
 
     }
-    /**
 
-     * 计算文件相对于根目录的深度
-     */
-    private int getRelativeDepth(File root, File file) {
-        Path rootPath = root.toPath();
-        Path filePath = file.toPath();
-        return rootPath.relativize(filePath).getNameCount() - 1;
-    }
-
-
- private boolean shouldIgnore(String fileName) {
-        return IGNORED_NAMES.contains(fileName) || IGNORED_EXTENSIONS.contains(fileName);
+    private boolean shouldIgnore(Path projectRoot, Path file) {
+        Path relativePath = projectRoot.relativize(file.toAbsolutePath().normalize());
+        for (Path part : relativePath) {
+            if (IGNORED_NAMES.contains(part.toString())) {
+                return true;
+            }
+        }
+        String fileName = file.getFileName().toString();
+        return IGNORED_EXTENSIONS.stream().anyMatch(fileName::endsWith);
     }
 
     @Override

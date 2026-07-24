@@ -79,4 +79,26 @@ class JsonMessageStreamHandlerTest {
         assertNotNull(output);
         assertTrue(output.contains("Write to File"));
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldFormatExitToolAsCompleted() {
+        JsonMessageStreamHandler handler = new JsonMessageStreamHandler();
+        Map<String, BaseTool> tools = (Map<String, BaseTool>) ReflectionTestUtils.invokeMethod(
+                handler, "createToolMap", 1L, 1L);
+        assertNotNull(tools);
+        assertTrue(tools.containsKey("exit"));
+
+        JSONObject executed = JSONUtil.createObj()
+                .set("type", StreamMessageTypeEnum.TOOL_EXECUTED.getValue())
+                .set("id", "tool-exit")
+                .set("name", "exit")
+                .set("arguments", "{}");
+
+        String output = ReflectionTestUtils.invokeMethod(handler, "handleJsonMessageChunk",
+                executed.toString(), new StringBuilder(), new HashSet<>(), tools);
+
+        assertNotNull(output);
+        assertTrue(output.contains("[执行结束]"));
+    }
 }

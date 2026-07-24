@@ -15,6 +15,8 @@ import com.yosh.coding.core.AiCodeGeneratorFacade;
 import com.yosh.coding.core.builder.BuilderVueCommand;
 import com.yosh.coding.core.handle.StreamHandlerExecutor;
 import com.yosh.coding.mapper.AppMapper;
+import com.yosh.coding.monitor.MonitorContext;
+import com.yosh.coding.monitor.MonitorContextHolder;
 import com.yosh.coding.service.*;
 import com.yosh.common.OssEntry;
 import com.yosh.exception.BusinessException;
@@ -320,7 +322,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         AppVersion newVersion = reserveAppVersion(appId, msg, app.getCodeGenType());
         Long version = newVersion.getVersion();
         boolean isModify = version > 1L;
-
+        MonitorContextHolder.setContext(MonitorContext.builder().userId(String.valueOf(loginUser.getId()))
+                .appId(String.valueOf(appId))
+                .version(String.valueOf(version))
+                .build()
+        );
         if (isModify) {
             AppVersion oldVersion = appVersionService.getByAppIdAndVersion(appId, version - 1);
             if (oldVersion != null && StrUtil.isNotBlank(oldVersion.getSourcePath())) {
@@ -349,7 +355,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         chatHistoryService.addChatHistory(appId, loginUser.getId(), msg, MessageTypeEnum.USER.getValue());
         // generate and save code（使用预占的版本号，文件将存到与 DB sourcePath 一致的目录）
         Flux<String> stringFlux = aiCodeGeneratorFacade.generateAndSaveCodeStream(msg, codeGenTypeEnum, appId, version, isModify);
-        return streamHandlerExecutor.doExecute(stringFlux, chatHistoryService, appId, version, loginUser, codeGenTypeEnum, isModify);
+        return streamHandlerExecutor.doExecute(stringFlux, chatHistoryService, appId, version, loginUser, codeGenTypeEnum, isModify)
+                .doFinally(signalType -> MonitorContextHolder.clearContext());
 
     }
 
@@ -615,8 +622,23 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
 
     @Override
     public void generateAppNameAsync(Long appId, String initPrompt, String expectedAppName) {
+        MonitorContext context = MonitorContextHolder.getContext();
+        if (context == null) {
+            App app = getById(appId);
+            if (app != null) {
+                context = MonitorContext.builder()
+                        .userId(String.valueOf(app.getUserId()))
+                        .appId(String.valueOf(appId))
+                        .version("1")
+                        .build();
+            }
+        }
+        MonitorContext finalContext = context;
         CompletableFuture.runAsync(() -> {
             try {
+                if (finalContext != null) {
+                    MonitorContextHolder.setContext(finalContext);
+                }
                 String generatedAppName = generateAppName(initPrompt);
                 if (StrUtil.isBlank(generatedAppName)) {
                     return;
@@ -638,6 +660,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
                 updateById(updateApp);
             } catch (Exception e) {
                 log.warn("异步生成应用名称失败，保留默认名称，appId={}", appId, e);
+            } finally {
+                MonitorContextHolder.clearContext();
             }
         });
     }
