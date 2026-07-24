@@ -114,6 +114,16 @@ pexels:
   api-key: ${PEXELS_API_KEY}
 cleanup:
   logic-deleted:
-    cron: "0 0 3 * * ?"
+    cron: "0 */3 * * * *"
     zone: "Asia/Shanghai"
+#监控
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+
 

@@ -4,13 +4,11 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import com.yosh.coding.core.saver.PlaceholderImageUrlSanitizer;
-import com.yosh.model.constants.AppConstant;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 
 @Slf4j
@@ -57,12 +55,7 @@ public class WriteToFile extends BaseTool {
             // 清理 content 中的 UTF-8 BOM 字符（大模型接口有时会在返回内容的开头带上 ﻿）
             // BOM 会导致 Vite/PostCSS 的 JSON 解析器报 "Unexpected token '﻿'" 错误
             String cleanContent = PlaceholderImageUrlSanitizer.sanitize(removeBOM(content), resourceUrls);
-            Path path = Paths.get(relativePath);
-            if(!path.isAbsolute()){
-                String DirName = AppConstant.VUE_PREFIX + appId + "_" + version;
-                Path root = Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR, DirName);
-                path = root.resolve(path);
-            }
+            Path path = resolveProjectPath(appId, version, relativePath);
             Path parent = path.getParent();
             if (parent != null) {
                 FileUtil.mkdir(parent.toFile());

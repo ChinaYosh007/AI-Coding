@@ -6,6 +6,7 @@ import cn.hutool.json.JSONUtil;
 import com.yosh.coding.artificalIntelligence.model.message.DevServerMessage;
 import com.yosh.coding.artificalIntelligence.skill.BaseTool;
 import com.yosh.coding.artificalIntelligence.skill.DeleteFile;
+import com.yosh.coding.artificalIntelligence.skill.ExitTool;
 import com.yosh.coding.artificalIntelligence.skill.ModifyFile;
 import com.yosh.coding.artificalIntelligence.skill.ReadFile;
 import com.yosh.coding.artificalIntelligence.skill.ReadProjectDir;
@@ -124,7 +125,8 @@ public class JsonMessageStreamHandler {
                 .filter(StrUtil::isNotEmpty))
                 .doOnError(error -> {
                     // 如果AI回复失败，也要记录错误消息
-                    String errorMessage = "AI回复失败: " + error.getMessage();
+                    String errorMessage = "AI回复失败: "
+                            + AiGenerationErrorMessageResolver.resolve(error);
                     chatHistoryService.addChatHistory(appId, loginUser.getId(), errorMessage, MessageTypeEnum.AI.getValue());
                 });
     }
@@ -211,7 +213,8 @@ public class JsonMessageStreamHandler {
                         new DeleteFile(appId, version),
                         new ModifyFile(appId, version),
                         new ReadFile(appId, version),
-                        new ReadProjectDir(appId, version)
+                        new ReadProjectDir(appId, version),
+                        new ExitTool()
                 ).stream()
                 .collect(Collectors.toUnmodifiableMap(BaseTool::getToolName, Function.identity()));
     }

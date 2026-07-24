@@ -7,6 +7,7 @@ import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.yosh.coding.annotation.AuthCheck;
 import com.yosh.coding.annotation.RateLimit;
+import com.yosh.coding.core.handle.AiGenerationErrorMessageResolver;
 import com.yosh.coding.service.AppService;
 import com.yosh.coding.service.UserService;
 import com.yosh.common.BaseResponse;
@@ -346,14 +347,16 @@ public class AppController {
             )).onErrorResume(e -> Flux.just(
                     ServerSentEvent.<String>builder()
                             .event("business-error")
-                            .data(JSONUtil.toJsonStr(Map.of("message", e.getMessage())))
+                            .data(JSONUtil.toJsonStr(Map.of(
+                                    "message", AiGenerationErrorMessageResolver.resolve(e))))
                             .build()
             ));
         } catch (Exception e) {
             return Flux.just(
                     ServerSentEvent.<String>builder()
                             .event("business-error")
-                            .data(JSONUtil.toJsonStr(Map.of("message", e.getMessage())))
+                            .data(JSONUtil.toJsonStr(Map.of(
+                                    "message", AiGenerationErrorMessageResolver.resolve(e))))
                             .build());
         }
 

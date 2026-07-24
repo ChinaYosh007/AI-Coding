@@ -3,13 +3,12 @@ package com.yosh.coding.artificalIntelligence.skill;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
-import com.yosh.model.constants.AppConstant;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 @Slf4j
 public class ReadFile extends BaseTool {
@@ -31,14 +30,12 @@ public class ReadFile extends BaseTool {
             if (appId == null || version == null) {
                 return "Error reading file: appId or version is blank";
             }
-            Path path = Paths.get(relativePath);
-            if (!path.isAbsolute()) {
-                String DirName = AppConstant.VUE_PREFIX + appId + "_" + version;
-                Path root = Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR, DirName);
-                path = root.resolve(path);
-            }
+            Path path = resolveProjectPath(appId, version, relativePath);
             if (!FileUtil.exist(path.toFile())) {
                 return "File does not exist: " + relativePath;
+            }
+            if (!Files.isRegularFile(path)) {
+                return "Path is not a regular file: " + relativePath;
             }
             return FileUtil.readUtf8String(path.toFile());
         } catch (Exception e) {

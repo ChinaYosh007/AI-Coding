@@ -139,6 +139,7 @@ import {
   MessageOutlined,
   DownOutlined,
   UserOutlined,
+  PictureOutlined,
 } from '@ant-design/icons-vue'
 
 const loginUserStore = useLoginUserStore()

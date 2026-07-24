@@ -29,4 +29,27 @@ class WriteToFileTest {
             FileUtil.del(projectDir);
         }
     }
+
+    @Test
+    void writeToFileShouldRejectPathOutsideProject() {
+        long appId = 999999000005L;
+        long version = 11L;
+        File projectDir = new File(AppConstant.CODE_OUTPUT_ROOT_DIR,
+                AppConstant.VUE_PREFIX + appId + "_" + version);
+        File escapedFile = new File(AppConstant.CODE_OUTPUT_ROOT_DIR, "escaped-write-test.txt");
+
+        FileUtil.del(projectDir);
+        FileUtil.del(escapedFile);
+        try {
+            WriteToFile writeToFile = new WriteToFile(appId, version);
+
+            String result = writeToFile.writeToFile("../escaped-write-test.txt", "blocked");
+
+            Assertions.assertTrue(result.contains("path escapes project root"));
+            Assertions.assertFalse(escapedFile.exists());
+        } finally {
+            FileUtil.del(projectDir);
+            FileUtil.del(escapedFile);
+        }
+    }
 }

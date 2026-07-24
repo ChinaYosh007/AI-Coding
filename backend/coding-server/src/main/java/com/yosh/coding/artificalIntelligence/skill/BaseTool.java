@@ -2,12 +2,44 @@ package com.yosh.coding.artificalIntelligence.skill;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
+import com.yosh.model.constants.AppConstant;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * 工具基类
  * 定义所有工具的通用接口
  */
 public abstract class BaseTool {
+
+    protected Path getProjectRoot(Long appId, Long version) {
+        if (appId == null || version == null) {
+            throw new IllegalArgumentException("appId or version is blank");
+        }
+        String projectName = AppConstant.VUE_PREFIX + appId + "_" + version;
+        return Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR, projectName)
+                .toAbsolutePath()
+                .normalize();
+    }
+
+    protected Path resolveProjectPath(Long appId, Long version, String relativePath) {
+        if (StrUtil.isBlank(relativePath)) {
+            throw new IllegalArgumentException("relativePath is blank");
+        }
+
+        Path requestedPath = Paths.get(relativePath);
+        if (requestedPath.isAbsolute()) {
+            throw new IllegalArgumentException("absolute path is not allowed");
+        }
+
+        Path projectRoot = getProjectRoot(appId, version);
+        Path resolvedPath = projectRoot.resolve(requestedPath).normalize();
+        if (!resolvedPath.startsWith(projectRoot)) {
+            throw new IllegalArgumentException("path escapes project root");
+        }
+        return resolvedPath;
+    }
 
     /**
      * 获取工具的英文名称（对应方法名）

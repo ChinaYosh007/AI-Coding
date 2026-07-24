@@ -54,27 +54,27 @@ const platformStats = reactive({
 const promptTemplates = [
   {
     icon: '📝',
-    label: '个人博客网站',
+    label: '个人博客与技术专栏',
     prompt:
-      '创建一个现代化的个人博客网站，参考掘金和知乎专栏的排版风格。要求：1.顶部固定导航栏含Logo、分类菜单和搜索框；2.首页有精选文章轮播大图，下方为双列文章卡片，每张卡片含封面图、标题、摘要、标签和阅读数；3.文章详情页支持Markdown渲染、目录锚点跳转和评论区；4.侧边栏展示作者头像、简介和热门标签云；5.底部含友情链接和版权信息。整体采用留白大方的设计，主色调为蓝灰色系，支持响应式。图片资源必须使用系统提供的真实 URL；如果系统未提供可用资源，图片区域使用占位色块或 CSS 渐变背景，禁止引用外部占位图或服务（如 picsum.photos）。',
+      '架构并构建一个符合现代响应式规范的个人博客与技术专栏平台。参考掘金与知乎专栏的技术排版标准。规格要求：1. 顶部固定导航栏（集成 Logo、分类检索、全局搜索框与主题切换）；2. 首页配置精选文章轮播大图及双列响应式卡片流（呈现封面图、标题、摘要、分类标签及阅读统计）；3. 文章详情组件支持 Markdown 实时渲染、目录树锚点定位与平滑跳转；4. 侧边栏构建作者名片、个人简介及动态热门标签云；5. 底部集成友情链接与版权声明。整体采用高留白极简设计，主色调为高雅蓝灰系，完全适配全端响应式。图片资源规范：优先使用系统提供的标准资源路径；若缺少图片，使用 CSS 矢量渐变背景占位，禁止引用第三方未校验的外部占位图。',
   },
   {
     icon: '🏢',
-    label: '企业官网',
+    label: '企业级品牌官网',
     prompt:
-      '设计一个高端企业官网，参考腾讯和阿里云官网的视觉风格。要求：1.顶部透明导航栏，滚动后变为毛玻璃效果，含Logo和菜单项；2.首屏全宽Hero大图配标语和行动按钮；3.核心产品/服务区域采用图标+标题+描述的三列卡片布局；4.数据成就区展示动态数字滚动效果（如客户数、项目数）；5.客户案例区展示合作品牌Logo墙；6.团队介绍区用圆形头像卡片；7.底部深色Footer含多列链接、联系方式和社交媒体图标。主色调深蓝渐变，支持响应式。图片资源必须使用系统提供的真实 URL；如果系统未提供可用资源，图片区域使用占位色块或 CSS 渐变背景，禁止引用外部占位图或服务（如 picsum.photos）。',
+      '设计并构建高规格企业级官网及品牌展示平台，参考腾讯与阿里云官网的视觉动效标准。规格要求：1. 顶部全透玻璃拟态导航栏，页面向下滚动时触发高斯模糊吸顶效果；2. 首屏全宽 Hero 大图搭配核心标语及明确的行动召唤（CTA）按钮；3. 核心产品/服务矩阵采用三列高阶卡片响应式布局；4. 数据指标区配备动态数字递增与里程碑呈现；5. 品牌合作伙伴与客户案例 Logo 墙；6. 团队介绍区采用圆形头像卡片；7. 深色高密底栏集成多维导航、联系方式及社交图标。主色调采用深蓝极光渐变，支持响应式布局。资源规范：图片资源优先使用系统提供的真实 URL，无资源时采用 CSS 渐变色块兜底。',
   },
   {
     icon: '🛒',
-    label: '在线商城',
+    label: '全功能电商商城',
     prompt:
-      '构建一个精致的在线商城，参考美团、京东和饿了么的布局设计。要求：1.顶部搜索栏居中，下方为横向滚动的分类导航（如推荐、数码、服饰、食品等）；2.首屏有促销轮播Banner和限时秒杀倒计时条；3.商品区域采用双列瀑布流卡片，每张卡片含商品图、名称、价格、原价划线和评分星级；4.商品详情页有图片画廊、规格选择、评价列表和推荐商品；5.右侧悬浮购物车图标带数量徽标；6.底部含服务保障说明和支付方式图标。整体配色活泼，以橙色为主色调，支持响应式。图片资源必须使用系统提供的真实 URL；如果系统未提供可用资源，图片区域使用占位色块或 CSS 渐变背景，禁止引用外部占位图或服务（如 picsum.photos）。',
+      '构建一个精致高可用在线电商平台，借鉴美团、京东与饿了么的前端交互布局。规格要求：1. 居中全局搜索栏与横向可滑动商品分类导航；2. 首屏配置营销活动轮播 Banner 与限时秒杀倒计时模块；3. 商品展现区采用双列瀑布流网格，展示商品主图、品名、实时价格、划线原价与评分星级；4. 商品详情组件包含画廊预览、多规格 SKU 选择、用户评价列表与关联推荐；5. 悬浮购物车图标配置实时数量徽标；6. 底部服务保障体系说明与标准支付渠道图标。整体配色活泼，以活力橙为主色调，全端响应式适配。资源规范：图片必须引用系统提供的合法 URL，禁止请求外部 picsum 等测试地址。',
   },
   {
     icon: '🎨',
-    label: '作品展示网站',
+    label: '设计师作品集平台',
     prompt:
-      '制作一个极具设计感的作品展示网站，参考站酷和Behance的视觉风格。要求：1.首页全屏Hero区域展示设计师头像、名字和一句话介绍，配动态粒子或渐变背景；2.作品画廊采用瀑布流网格布局，鼠标悬停时卡片放大并显示作品标题和分类；3.点击作品进入详情页，左侧大图轮播，右侧展示项目信息（客户、时间、技术栈、项目描述）；4.顶部固定极简导航含Logo和锚点链接；5.关于我区域用时间线展示经历；6.联系区域含表单和社交链接图标。整体暗色主题，强调作品视觉冲击力，支持响应式。图片资源必须使用系统提供的真实 URL；如果系统未提供可用资源，图片区域使用占位色块或 CSS 渐变背景，禁止引用外部占位图或服务（如 picsum.photos）。',
+      '制作一个极具视效冲击力的设计师/创作者作品集展示平台，参考 Behance 与 Dribbble 的展现风范。规格要求：1. 首屏全屏 Hero 区展示创作者名片、个人定位一句话说明，搭配微质感渐变背景；2. 作品画廊采用瀑布流网格，支持 Hover 悬停微动效与遮罩信息展开；3. 作品详情组件包含高清大图组图轮播与右侧项目元数据卡片（客户、完成时间、技术栈、设计理念）；4. 极简固定导航与经验时间线展示；5. 响应式联系表单与社交链接。暗色沉浸主题，强调作品视觉张力。资源规范：必须使用系统合规图片或 CSS 渐变作为封面兜底。',
   },
 ]
 
@@ -213,14 +213,34 @@ onMounted(() => {
       <section class="hero-section">
         <div class="hero-badge">
           <span class="hero-badge-dot"></span>
-          AI 驱动 · 零代码 · 分钟级上线
+          AI 代码母体 · 全栈零代码生成平台
         </div>
         <h1 class="hero-title">
-          一句话，<span class="hero-title-gradient">生成完整应用</span>
+          一句话，<span class="hero-title-gradient">构建并上线完整 Web 应用</span>
         </h1>
         <p class="hero-description">
-          描述你的想法，AI 帮你实时生成、预览并一键部署网站应用
+          输入业务需求，AI 智能架构 DOM 结构、CSS 布局与 JS 交互逻辑，支持一键实时编译与部署
         </p>
+
+        <!-- 核心工程特性卡片 -->
+        <div class="engine-portals">
+          <div class="portal-card active">
+            <div class="portal-icon">⚡</div>
+            <div class="portal-info">
+              <h3>智能架构推导</h3>
+              <p>自动根据需求推导单页、多文件或完整 Vue 工程结构</p>
+            </div>
+            <span class="portal-tag">多模式支持</span>
+          </div>
+          <div class="portal-card active">
+            <div class="portal-icon">🖥️</div>
+            <div class="portal-info">
+              <h3>沙箱实时热编译</h3>
+              <p>支持在线代码预览、可视化元素调试与一键部署上线</p>
+            </div>
+            <span class="portal-tag accent">实时沙箱</span>
+          </div>
+        </div>
       </section>
 
       <!-- AI 输入台 -->
@@ -527,7 +547,93 @@ onMounted(() => {
 .hero-description {
   font-size: 18px;
   color: var(--text-2);
+  margin: 0 0 32px;
+}
+
+/* ===== 双大核心入口卡片 ===== */
+.engine-portals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  max-width: 860px;
+  margin: 0 auto 12px;
+  text-align: left;
+}
+
+@media (max-width: 640px) {
+  .engine-portals {
+    grid-template-columns: 1fr;
+  }
+}
+
+.portal-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 22px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.3s var(--ease-out);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.portal-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(14, 165, 233, 0.4);
+  box-shadow: var(--shadow-md);
+}
+
+.portal-card.active {
+  border-color: rgba(14, 165, 233, 0.3);
+  background: linear-gradient(135deg, var(--surface) 0%, rgba(14, 165, 233, 0.04) 100%);
+}
+
+.portal-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: rgba(14, 165, 233, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.portal-info h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  color: var(--text-1);
+}
+
+.portal-info p {
+  font-size: 12.5px;
+  color: var(--text-2);
   margin: 0;
+  line-height: 1.45;
+}
+
+.portal-tag {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  color: var(--text-3);
+}
+
+.portal-tag.accent {
+  background: var(--gradient-brand);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.25);
 }
 
 /* ===== AI 输入台 ===== */
