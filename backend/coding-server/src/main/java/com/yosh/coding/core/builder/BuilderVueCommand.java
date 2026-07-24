@@ -28,6 +28,9 @@ public class BuilderVueCommand {
 
     private static final Pattern V_IF_PATTERN = Pattern.compile("\\bv-if\\s*=\\s*\"([^\"]+)\"");
     private static final Pattern V_ELSE_IF_PATTERN = Pattern.compile("\\bv-else-if\\s*=\\s*\"([^\"]+)\"");
+    private static final int NPM_INSTALL_TIMEOUT_SECONDS = 600;
+    private static final int GENERATED_DEV_SERVER_PORT_BASE = 5200;
+    private static final int GENERATED_DEV_SERVER_PORT_RANGE = 1000;
 
     /** 开发服务器进程（appId → Process），应用关闭时自动清理 */
     private final ConcurrentHashMap<Long, Process> devServers = new ConcurrentHashMap<>();
@@ -46,8 +49,19 @@ public class BuilderVueCommand {
      */
     public boolean executeNpmInstallOnly(File projectDir) {
         log.info("执行 npm install...");
-        String command = String.format("%s install", buildCommand("npm"));
-        return executeCommand(projectDir, command, 180);
+        String command = String.format("%s install --no-audit --no-fund", buildCommand("npm"));
+        boolean installed = executeCommand(projectDir, command, NPM_INSTALL_TIMEOUT_SECONDS);
+        if (!installed) {
+            cleanNpmInstallArtifacts(projectDir);
+        }
+        return installed;
+    }
+
+    /**
+     * npm 在安装开始时就会创建 node_modules，不能只以目录存在作为成功条件。
+     */
+    public boolean hasInstalledDependencies(File projectDir) {
+        return new File(projectDir, "node_modules/vite/bin/vite.js").isFile();
     }
 
     /**
@@ -117,9 +131,12 @@ public class BuilderVueCommand {
             // 等待进程完成，设置超时
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
-                log.error("命令执行超时（{}秒），强制终止进程", timeoutSeconds);
+                log.error("命令执行超时（{}秒），强制终止进程: {}", timeoutSeconds, command);
                 process.descendants().forEach(ProcessHandle::destroyForcibly);
                 process.destroyForcibly();
+                outputThread.join(5000);
+                errorThread.join(5000);
+                logCommandOutput(command, outputBuilder.toString(), errorBuilder.toString());
                 return false;
             }
             
@@ -139,12 +156,7 @@ public class BuilderVueCommand {
                 return true;
             } else {
                 log.error("命令执行失败，退出码: {}", exitCode);
-                if (!error.isEmpty()) {
-                    log.error("错误输出:\n{}", error);
-                }
-                if (!output.isEmpty()) {
-                    log.error("标准输出:\n{}", output);
-                }
+                logCommandOutput(command, output, error);
                 return false;
             }
         } catch (Exception e) {
@@ -155,6 +167,15 @@ public class BuilderVueCommand {
                 process.descendants().forEach(ProcessHandle::destroyForcibly);
                 process.destroy();
             }
+        }
+    }
+
+    private void logCommandOutput(String command, String output, String error) {
+        if (!error.isEmpty()) {
+            log.error("命令错误输出 ({}):\n{}", command, error);
+        }
+        if (!output.isEmpty()) {
+            log.error("命令标准输出 ({}):\n{}", command, output);
         }
     }
 
@@ -217,8 +238,7 @@ public class BuilderVueCommand {
         log.info("开始构建 Vue 项目（buildOnly）: {}", projectPath);
         sanitizeVueTemplates(projectDir);
         // 兜底检查：如果 node_modules 不存在则补安装
-        File nodeModules = new File(projectDir, "node_modules");
-        if (!nodeModules.exists()) {
+        if (!hasInstalledDependencies(projectDir)) {
             log.info("node_modules 不存在，补执行 npm install");
             if (!executeNpmInstallOnly(projectDir)) {
                 log.error("npm install fallback failed");
@@ -266,8 +286,9 @@ public class BuilderVueCommand {
      */
     public String startDevServer(File projectDir, long appId) {
         stopDevServer(appId);
-        log.info("启动开发服务器 appId={} path={}", appId, projectDir.getAbsolutePath());
-        String command = String.format("%s run dev", buildCommand("npm"));
+        int port = generatedDevServerPort(appId);
+        log.info("启动生成项目开发服务器 appId={} port={} path={}", appId, port, projectDir.getAbsolutePath());
+        String command = String.format("%s run dev -- --host 127.0.0.1 --port %d --strictPort", buildCommand("npm"), port);
         try {
             Process process = RuntimeUtil.exec(
                     null,
@@ -305,6 +326,10 @@ public class BuilderVueCommand {
             log.error("启动开发服务器失败 appId={}: {}", appId, e.getMessage());
             return null;
         }
+    }
+
+    private int generatedDevServerPort(long appId) {
+        return GENERATED_DEV_SERVER_PORT_BASE + (int) Math.floorMod(appId, GENERATED_DEV_SERVER_PORT_RANGE);
     }
 
     private void sanitizeVueTemplates(File projectDir) {

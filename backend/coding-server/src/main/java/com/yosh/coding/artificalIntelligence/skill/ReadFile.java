@@ -3,6 +3,7 @@ package com.yosh.coding.artificalIntelligence.skill;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
+import com.yosh.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
@@ -14,10 +15,16 @@ import java.nio.file.Path;
 public class ReadFile extends BaseTool {
     private final Long appId;
     private final Long version;
+    private final CodeGenTypeEnum codeGenType;
 
     public ReadFile(Long appId, Long version) {
+        this(appId, version, CodeGenTypeEnum.VUE_PROJECT);
+    }
+
+    public ReadFile(Long appId, Long version, CodeGenTypeEnum codeGenType) {
         this.appId = appId;
         this.version = version;
+        this.codeGenType = codeGenType;
     }
 
     @Tool("Read the content of a file at the specified relative path.")
@@ -30,7 +37,7 @@ public class ReadFile extends BaseTool {
             if (appId == null || version == null) {
                 return "Error reading file: appId or version is blank";
             }
-            Path path = resolveProjectPath(appId, version, relativePath);
+            Path path = resolveProjectPath(appId, version, codeGenType, relativePath);
             if (!FileUtil.exist(path.toFile())) {
                 return "File does not exist: " + relativePath;
             }

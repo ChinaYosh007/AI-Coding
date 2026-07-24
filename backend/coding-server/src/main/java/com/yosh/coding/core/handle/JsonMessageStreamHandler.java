@@ -16,6 +16,7 @@ import com.yosh.coding.service.AppVersionService;
 import com.yosh.coding.service.ChatHistoryService;
 import com.yosh.model.constants.AppConstant;
 import com.yosh.model.entity.AppVersion;
+import com.yosh.model.enums.CodeGenTypeEnum;
 import com.yosh.model.enums.MessageTypeEnum;
 import com.yosh.model.enums.StreamMessageTypeEnum;
 import com.yosh.model.vo.LoginUserVO;
@@ -59,12 +60,12 @@ public class JsonMessageStreamHandler {
                                ChatHistoryService chatHistoryService,
                                long appId, long version,
                                LoginUserVO loginUser,
-                               com.yosh.model.enums.CodeGenTypeEnum codeGenType) {
+                               CodeGenTypeEnum codeGenType) {
         // 收集数据用于生成后端记忆格式
         StringBuilder chatHistoryStringBuilder = new StringBuilder();
         // 用于跟踪已经见过的工具ID，判断是否是第一次调用
         Set<String> seenToolIds = new HashSet<>();
-        Map<String, BaseTool> tools = createToolMap(appId, version);
+        Map<String, BaseTool> tools = createToolMap(appId, version, codeGenType);
         return originFlux
                 .map(chunk -> {
                     // 解析每个 JSON 消息块
@@ -84,7 +85,7 @@ public class JsonMessageStreamHandler {
                 // 在流末尾追加开发服务器 URL
                 .concatWith(Mono.fromCallable(() -> {
                     try {
-                        if (codeGenType != com.yosh.model.enums.CodeGenTypeEnum.VUE_PROJECT) {
+                        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
                             return "";
                         }
                         String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator
@@ -92,20 +93,18 @@ public class JsonMessageStreamHandler {
                         File projectDir = new File(projectPath);
 
                         // 确保依赖已安装
-                        File nodeModules = new File(projectDir, "node_modules");
-                        if (!nodeModules.exists()) {
-                            log.info("node_modules 不存在，先执行 npm install: {}", projectPath);
+                        if (!builderVueCommand.hasInstalledDependencies(projectDir)) {
+                            log.info("Vue 依赖未完整安装，先执行 npm install: {}", projectPath);
                             boolean ok = builderVueCommand.executeNpmInstallOnly(projectDir);
                             if (!ok) {
                                 log.error("npm install 失败, appId={}", appId);
                                 chatHistoryService.addChatHistory(appId, loginUser.getId(),
-                                    "[系统提示] npm install 失败，请检查依赖配置。", MessageTypeEnum.AI.getValue());
+                                    "[系统提示] Vue 依赖安装失败或超时，已清理不完整依赖；请重试。", MessageTypeEnum.AI.getValue());
                                 return "";
                             }
                         }
 
-                        // 启动开发服务器
-                        int port = 5173 + (int)(appId % 100);
+                        // 生成项目使用 BuilderVueCommand 分配的 5200-6199 端口段，避免占用主前端的 5173。
                         String url = builderVueCommand.startDevServer(projectDir, appId);
                         if (url != null) {
                             log.info("Vue 开发服务器已启动, url={}", url);
@@ -208,12 +207,17 @@ public class JsonMessageStreamHandler {
     }
 
     private Map<String, BaseTool> createToolMap(long appId, long version) {
+        return createToolMap(appId, version, CodeGenTypeEnum.VUE_PROJECT);
+    }
+
+    private Map<String, BaseTool> createToolMap(
+            long appId, long version, CodeGenTypeEnum codeGenType) {
         return List.<BaseTool>of(
-                        new WriteToFile(appId, version),
-                        new DeleteFile(appId, version),
-                        new ModifyFile(appId, version),
-                        new ReadFile(appId, version),
-                        new ReadProjectDir(appId, version),
+                        new WriteToFile(appId, version, codeGenType),
+                        new DeleteFile(appId, version, codeGenType),
+                        new ModifyFile(appId, version, codeGenType),
+                        new ReadFile(appId, version, codeGenType),
+                        new ReadProjectDir(appId, version, codeGenType),
                         new ExitTool()
                 ).stream()
                 .collect(Collectors.toUnmodifiableMap(BaseTool::getToolName, Function.identity()));

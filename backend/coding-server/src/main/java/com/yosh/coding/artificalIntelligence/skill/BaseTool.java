@@ -3,6 +3,7 @@ package com.yosh.coding.artificalIntelligence.skill;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import com.yosh.model.constants.AppConstant;
+import com.yosh.model.enums.CodeGenTypeEnum;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -14,16 +15,27 @@ import java.nio.file.Paths;
 public abstract class BaseTool {
 
     protected Path getProjectRoot(Long appId, Long version) {
+        return getProjectRoot(appId, version, CodeGenTypeEnum.VUE_PROJECT);
+    }
+
+    protected Path getProjectRoot(Long appId, Long version, CodeGenTypeEnum codeGenType) {
         if (appId == null || version == null) {
             throw new IllegalArgumentException("appId or version is blank");
         }
-        String projectName = AppConstant.VUE_PREFIX + appId + "_" + version;
+        if (codeGenType == null) {
+            throw new IllegalArgumentException("codeGenType is blank");
+        }
+        String projectName = codeGenType.getValue() + "_" + appId + "_" + version;
         return Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR, projectName)
                 .toAbsolutePath()
                 .normalize();
     }
 
     protected Path resolveProjectPath(Long appId, Long version, String relativePath) {
+        return resolveProjectPath(appId, version, CodeGenTypeEnum.VUE_PROJECT, relativePath);
+    }
+
+    protected Path resolveProjectPath(Long appId, Long version, CodeGenTypeEnum codeGenType, String relativePath) {
         if (StrUtil.isBlank(relativePath)) {
             throw new IllegalArgumentException("relativePath is blank");
         }
@@ -33,7 +45,7 @@ public abstract class BaseTool {
             throw new IllegalArgumentException("absolute path is not allowed");
         }
 
-        Path projectRoot = getProjectRoot(appId, version);
+        Path projectRoot = getProjectRoot(appId, version, codeGenType);
         Path resolvedPath = projectRoot.resolve(requestedPath).normalize();
         if (!resolvedPath.startsWith(projectRoot)) {
             throw new IllegalArgumentException("path escapes project root");

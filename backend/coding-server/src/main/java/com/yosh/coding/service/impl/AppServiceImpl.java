@@ -305,7 +305,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     }
 
     @Override
-    public Flux<String>  chatToGenCode(Long appId, String msg, LoginUserVO loginUser){
+    public Flux<String> chatToGenCode(Long appId, String msg, Long sourceVersion, LoginUserVO loginUser){
         //权限校验
         ThrowUtils.throwIf(appId == null,ErrorCode.ERROR_QUERY,"select id is bad!!!");
         ThrowUtils.throwIf(StrUtil.isBlank(msg),ErrorCode.ERROR_QUERY,"init message isn't null!");
@@ -318,19 +318,25 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         String GenType = app.getCodeGenType();
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(GenType);
         ThrowUtils.throwIf(codeGenTypeEnum == null,ErrorCode.ERROR_QUERY,"this file type current isn't brace!!!");
+        ThrowUtils.throwIf(sourceVersion != null && sourceVersion <= 0,
+                ErrorCode.PARAMS_ERROR, "source version is invalid");
+        AppVersion sourceAppVersion = sourceVersion == null
+                ? appVersionService.getByAppId(appId)
+                : appVersionService.getByAppIdAndVersion(appId, sourceVersion);
+        ThrowUtils.throwIf(sourceVersion != null && sourceAppVersion == null,
+                ErrorCode.NOT_FOUND_ERROR, "source version not found");
         // 预占版本号：先生成一条 version 记录并拿到版本号，保证后续文件保存路径与 DB 一致
         AppVersion newVersion = reserveAppVersion(appId, msg, app.getCodeGenType());
         Long version = newVersion.getVersion();
-        boolean isModify = version > 1L;
+        boolean isModify = sourceAppVersion != null;
         MonitorContextHolder.setContext(MonitorContext.builder().userId(String.valueOf(loginUser.getId()))
                 .appId(String.valueOf(appId))
                 .version(String.valueOf(version))
                 .build()
         );
-        if (isModify) {
-            AppVersion oldVersion = appVersionService.getByAppIdAndVersion(appId, version - 1);
-            if (oldVersion != null && StrUtil.isNotBlank(oldVersion.getSourcePath())) {
-                File oldDir = new File(oldVersion.getSourcePath());
+        if (sourceAppVersion != null) {
+            if (StrUtil.isNotBlank(sourceAppVersion.getSourcePath())) {
+                File oldDir = new File(sourceAppVersion.getSourcePath());
                 File newDir = new File(newVersion.getSourcePath());
                 if (oldDir.exists() && oldDir.isDirectory()) {
                     File[] files = oldDir.listFiles();

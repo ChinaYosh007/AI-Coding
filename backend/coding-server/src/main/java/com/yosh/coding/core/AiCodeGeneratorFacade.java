@@ -104,20 +104,22 @@ public class AiCodeGeneratorFacade {
      * @return
      */
 
-    private List<Object> loadSkill(long appId, long version, List<String> resourceUrls) {
+    private List<Object> loadSkill(
+            long appId, long version, CodeGenTypeEnum type, List<String> resourceUrls) {
         return List.of(
-                new WriteToFile(appId, version, resourceUrls),
-                new DeleteFile(appId, version),
-                new ModifyFile(appId, version),
-                new ReadFile(appId, version),
-                new ReadProjectDir(appId, version),
+                new WriteToFile(appId, version, type, resourceUrls),
+                new DeleteFile(appId, version, type),
+                new ModifyFile(appId, version, type),
+                new ReadFile(appId, version, type),
+                new ReadProjectDir(appId, version, type),
                 new ExitTool()
         );
     }
 
-    private Map<ToolSpecification, ToolExecutor> loadSanitizedSkills(long appId, long version, List<String> resourceUrls) {
+    private Map<ToolSpecification, ToolExecutor> loadSanitizedSkills(
+            long appId, long version, CodeGenTypeEnum type, List<String> resourceUrls) {
         Map<ToolSpecification, ToolExecutor> tools = new LinkedHashMap<>();
-        for (Object tool : loadSkill(appId, version, resourceUrls)) {
+        for (Object tool : loadSkill(appId, version, type, resourceUrls)) {
             for (ToolSpecification specification : ToolSpecifications.toolSpecificationsFrom(tool)) {
                 tools.put(specification, (request, memoryId) -> {
                     ToolExecutionRequest sanitizedRequest = ToolExecutionRequest.builder()
@@ -155,7 +157,7 @@ public class AiCodeGeneratorFacade {
                 yield AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(toolCallingChatModel)
                         .streamingChatModel(bean)
-                        .tools(this.loadSanitizedSkills(appId, version, resourceUrls))
+                        .tools(this.loadSanitizedSkills(appId, version, type, resourceUrls))
                         .chatMemoryProvider(id -> messageWindowChatMemory)
                         .hallucinatedToolNameStrategy((request) -> ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
                         .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS)
@@ -175,7 +177,7 @@ public class AiCodeGeneratorFacade {
                         .hallucinatedToolNameStrategy((request) -> ToolExecutionResultMessage.from(request, "error: there no tool called " + request.name()))
                         .maxSequentialToolsInvocations(MAX_VUE_TOOL_INVOCATIONS);
                 if (isModify) {
-                    builder.tools(this.loadSanitizedSkills(appId, version, resourceUrls));
+                    builder.tools(this.loadSanitizedSkills(appId, version, type, resourceUrls));
                 }
                 yield builder.build();
 
