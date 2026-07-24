@@ -408,6 +408,7 @@ export class VisualEditor {
              animation: fadeIn 0.3s ease;
            \`;
            const style = document.createElement('style');
+           style.id = 'edit-tip-styles';
            style.textContent = '@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }';
            document.head.appendChild(style);
            document.body.appendChild(tip);

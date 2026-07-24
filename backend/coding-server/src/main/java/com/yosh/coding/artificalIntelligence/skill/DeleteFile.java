@@ -2,6 +2,7 @@ package com.yosh.coding.artificalIntelligence.skill;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
+import com.yosh.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 
@@ -11,10 +12,16 @@ import java.nio.file.Path;
 public class DeleteFile  extends BaseTool{
     private final Long appId;
     private final Long version;
+    private final CodeGenTypeEnum codeGenType;
 
     public DeleteFile(Long appId, Long version) {
+        this(appId, version, CodeGenTypeEnum.VUE_PROJECT);
+    }
+
+    public DeleteFile(Long appId, Long version, CodeGenTypeEnum codeGenType) {
         this.appId = appId;
         this.version = version;
+        this.codeGenType = codeGenType;
     }
 
     @Tool("删除对应路径下对应的文件")
@@ -34,7 +41,7 @@ public class DeleteFile  extends BaseTool{
             String targetPath = StrUtil.isBlank(relativePath)
                     ? fileName
                     : Path.of(relativePath, fileName).toString();
-            Path path = resolveProjectPath(appId, version, targetPath);
+            Path path = resolveProjectPath(appId, version, codeGenType, targetPath);
             if(!Files.exists(path)){
                 return "wrong: 文件不存在";
             }

@@ -31,7 +31,7 @@ public interface AppService extends IService<App> {
 
     CodeGenTypeEnum generateRoute(String prompt);
 
-    Flux<String> chatToGenCode(Long appId, String message, LoginUserVO loginUser);
+    Flux<String> chatToGenCode(Long appId, String message, Long sourceVersion, LoginUserVO loginUser);
 
     String developApp(Long appId, LoginUserVO user,Long version);
 

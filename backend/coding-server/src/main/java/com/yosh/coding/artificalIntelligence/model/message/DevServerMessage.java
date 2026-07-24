@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class DevServerMessage {
     private String type = "dev_server";
-    /** 开发服务器 URL，如 http://localhost:5173 */
+    /** 生成项目开发服务器 URL，如 http://127.0.0.1:5200 */
     private String url;
 
     public DevServerMessage(String url) {

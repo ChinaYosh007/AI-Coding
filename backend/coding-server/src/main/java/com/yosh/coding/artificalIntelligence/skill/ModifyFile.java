@@ -3,6 +3,7 @@ package com.yosh.coding.artificalIntelligence.skill;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
+import com.yosh.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
@@ -13,10 +14,16 @@ import java.nio.file.Path;
 public class ModifyFile extends BaseTool {
     private final Long appId;
     private final Long version;
+    private final CodeGenTypeEnum codeGenType;
 
     public ModifyFile(Long appId, Long version) {
+        this(appId, version, CodeGenTypeEnum.VUE_PROJECT);
+    }
+
+    public ModifyFile(Long appId, Long version, CodeGenTypeEnum codeGenType) {
         this.appId = appId;
         this.version = version;
+        this.codeGenType = codeGenType;
     }
 
     @Tool("Modify an existing file by precisely replacing old content with new content. oldContent must exactly match the text in the file.")
@@ -34,7 +41,7 @@ public class ModifyFile extends BaseTool {
             if (appId == null || version == null) {
                 return "Error modifying file: appId or version is blank";
             }
-            Path path = resolveProjectPath(appId, version, relativePath);
+            Path path = resolveProjectPath(appId, version, codeGenType, relativePath);
             if (!FileUtil.exist(path.toFile())) {
                 return "File does not exist: " + relativePath;
             }

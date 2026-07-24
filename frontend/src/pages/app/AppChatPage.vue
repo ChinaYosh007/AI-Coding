@@ -289,60 +289,90 @@
       <div class="code-panel">
         <!-- 生成中：文件树 + 代码查看 -->
         <div v-if="isGenerating" class="file-explorer">
+          <img
+              :key="activeCodeWorkspaceBackground"
+              class="code-workspace-background"
+              :class="{ loaded: codeWorkspaceBackgroundLoaded }"
+              :src="activeCodeWorkspaceBackground"
+              alt=""
+              decoding="async"
+              referrerpolicy="no-referrer"
+              @load="handleCodeWorkspaceBackgroundLoad"
+              @error="handleCodeWorkspaceBackgroundError"
+          />
+          <div class="code-workspace-scrim" aria-hidden="true"></div>
           <div class="panel-header">
             <span class="panel-title">
               <CodeOutlined />
               实时文件
             </span>
-          </div>
-          <template
-            v-for="streamMsg in messages.filter(m => m.streamInfo).slice(-1)"
-            :key="`stream-mid-${streamMsg.streamInfo?.updatedAt || 'pending'}`"
-          >
-            <div class="file-explorer-body">
-              <aside class="file-tree">
-                <div v-if="liveFiles.length === 0" class="file-tree-empty">
-                  <a-spin size="small" />
-                  <span>等待文件写入…</span>
-                </div>
-                <button
-                    v-for="fileName in liveFiles"
-                    :key="fileName"
-                    class="file-tree-item"
-                    :class="{ active: activeLiveFile === fileName }"
-                    type="button"
-                    @click="activeLiveFile = fileName"
-                >
-                  <FileTextOutlined class="file-tree-icon" />
-                  <span class="file-tree-name" :title="fileName">{{ fileName }}</span>
-                </button>
-              </aside>
-              <section class="code-viewer">
-                <div class="code-viewer-header">
-                  <div class="code-viewer-header-left">
-                    <FileTextOutlined class="code-file-icon" />
-                    <span class="code-viewer-file">{{ currentLiveFile?.name || '选择文件查看代码' }}</span>
-                    <span v-if="currentLiveFile?.content" class="code-viewer-badge">
-                      {{ currentLiveFile.content.split('\n').length }} 行
-                    </span>
-                  </div>
-                  <div v-if="currentLiveFile?.content" class="code-viewer-header-right">
-                    <button class="code-copy-btn" title="复制代码" type="button" @click="handleCopyLiveCode">
-                      <CopyOutlined /> 复制源码
-                    </button>
-                  </div>
-                </div>
-                <div v-if="!currentLiveFile" class="code-viewer-placeholder">
-                  <p>正在连接神经流，等待文件写入…</p>
-                </div>
-                <div v-else-if="!currentLiveFile.content" class="code-viewer-generating">
-                  <a-spin size="small" />
-                  <p>实时编译写入代码中…</p>
-                </div>
-                <pre v-else class="code-viewer-content"><code class="hljs" v-html="highlightedCode"></code></pre>
-              </section>
+            <div class="code-panel-meta">
+              <span>{{ liveFiles.length }} 个文件</span>
+              <span class="code-sync-status" :class="{ paused: !codeAutoFollow }">
+                <span class="code-sync-dot"></span>
+                {{ codeAutoFollow ? '实时跟随' : '已暂停' }}
+              </span>
             </div>
-          </template>
+          </div>
+          <div v-if="messages.some(m => m.streamInfo)" class="file-explorer-body">
+            <aside class="file-tree">
+              <div v-if="liveFiles.length === 0" class="file-tree-empty">
+                <a-spin size="small" />
+                <span>等待文件写入…</span>
+              </div>
+              <button
+                  v-for="fileName in liveFiles"
+                  :key="fileName"
+                  class="file-tree-item"
+                  :class="{ active: activeLiveFile === fileName }"
+                  type="button"
+                  @click="activeLiveFile = fileName"
+              >
+                <FileTextOutlined class="file-tree-icon" />
+                <span class="file-tree-name" :title="fileName">{{ fileName }}</span>
+              </button>
+            </aside>
+            <section class="code-viewer">
+              <div class="code-viewer-header">
+                <div class="code-viewer-header-left">
+                  <FileTextOutlined class="code-file-icon" />
+                  <span class="code-viewer-file" :title="currentLiveFile?.name">
+                    {{ currentLiveFile?.name || '选择文件查看代码' }}
+                  </span>
+                  <span v-if="currentLiveFile?.content" class="code-viewer-badge">
+                    {{ currentLiveFile.content.split('\n').length }} 行
+                  </span>
+                </div>
+                <div v-if="currentLiveFile?.content" class="code-viewer-header-right">
+                  <button class="code-copy-btn" title="复制代码" type="button" @click="handleCopyLiveCode">
+                    <CopyOutlined /> 复制源码
+                  </button>
+                </div>
+              </div>
+              <div v-if="!currentLiveFile" class="code-viewer-placeholder">
+                <p>等待生成文件…</p>
+              </div>
+              <div v-else-if="!currentLiveFile.content" class="code-viewer-generating">
+                <a-spin size="small" />
+                <p>正在写入文件…</p>
+              </div>
+              <pre
+                  v-else
+                  ref="codeViewerContainer"
+                  class="code-viewer-content"
+                  @scroll.passive="handleCodeViewerScroll"
+              ><code>{{ currentLiveFile.content }}</code></pre>
+              <button
+                  v-if="currentLiveFile?.content && !codeAutoFollow"
+                  class="code-follow-btn"
+                  type="button"
+                  @click="resumeCodeAutoFollow"
+              >
+                <span aria-hidden="true">↓</span>
+                跟随最新
+              </button>
+            </section>
+          </div>
           <div v-if="messages.filter(m => m.streamInfo).length === 0" class="file-explorer-empty">
             <a-spin size="small" />
             <span>正在连接生成服务…</span>
@@ -643,8 +673,6 @@
 import { ref, onMounted, nextTick, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import hljs from 'highlight.js/lib/common'
-import 'highlight.js/styles/github.css'
 import { useLoginUserStore } from '@/stores/loginUser'
 import {
   getAppVoById,
@@ -767,6 +795,73 @@ const messages = ref<Message[]>([])
 const userInput = ref('')
 const isGenerating = ref(false)
 const messagesContainer = ref<HTMLElement>()
+const codeViewerContainer = ref<HTMLElement | null>(null)
+const codeAutoFollow = ref(true)
+const CODE_BOTTOM_THRESHOLD = 40
+let codeScrollFrame: number | undefined
+let activeEventSource: EventSource | null = null
+
+const codeWorkspaceBackgrounds = [
+  'https://haowallpaper.com/link/common/file/getCroppingImg/16308461319277952',
+  'https://haowallpaper.com/link/common/file/getCroppingImg/16733085256306048',
+  'https://haowallpaper.com/link/common/file/getCroppingImg/16886526162750848',
+  'https://haowallpaper.com/link/common/file/getCroppingImg/15556592617034048',
+  'https://haowallpaper.com/link/common/file/getCroppingImg/16308435165367680',
+  'https://haowallpaper.com/link/common/file/getCroppingImg/16660891997949312',
+  'https://haowallpaper.com/link/common/file/getCroppingImg/15335261043199296',
+  'https://haowallpaper.com/link/common/file/getCroppingImg/16308462671547776',
+  'https://haowallpaper.com/link/common/file/getCroppingImg/18506749030223232',
+  'https://haowallpaper.com/link/common/file/getCroppingImg/17151046692359552',
+]
+const codeWorkspaceBackgroundIndex = ref(0)
+const codeWorkspaceBackgroundLoaded = ref(false)
+const failedCodeWorkspaceBackgrounds = new Set<string>()
+const activeCodeWorkspaceBackground = computed(
+  () => codeWorkspaceBackgrounds[codeWorkspaceBackgroundIndex.value],
+)
+let codeWorkspaceBackgroundTimer: number | undefined
+
+const stopCodeWorkspaceBackgroundRotation = () => {
+  if (codeWorkspaceBackgroundTimer !== undefined) {
+    window.clearInterval(codeWorkspaceBackgroundTimer)
+    codeWorkspaceBackgroundTimer = undefined
+  }
+}
+
+const startCodeWorkspaceBackgroundRotation = () => {
+  stopCodeWorkspaceBackgroundRotation()
+  failedCodeWorkspaceBackgrounds.clear()
+  codeWorkspaceBackgroundLoaded.value = false
+  codeWorkspaceBackgroundIndex.value = Math.floor(Math.random() * codeWorkspaceBackgrounds.length)
+  codeWorkspaceBackgroundTimer = window.setInterval(() => {
+    selectNextCodeWorkspaceBackground()
+  }, 12000)
+}
+
+const selectNextCodeWorkspaceBackground = () => {
+  const { length } = codeWorkspaceBackgrounds
+  for (let offset = 1; offset <= length; offset += 1) {
+    const nextIndex = (codeWorkspaceBackgroundIndex.value + offset) % length
+    if (!failedCodeWorkspaceBackgrounds.has(codeWorkspaceBackgrounds[nextIndex])) {
+      codeWorkspaceBackgroundLoaded.value = false
+      codeWorkspaceBackgroundIndex.value = nextIndex
+      return true
+    }
+  }
+  return false
+}
+
+const handleCodeWorkspaceBackgroundLoad = () => {
+  codeWorkspaceBackgroundLoaded.value = true
+}
+
+const handleCodeWorkspaceBackgroundError = () => {
+  failedCodeWorkspaceBackgrounds.add(activeCodeWorkspaceBackground.value)
+  codeWorkspaceBackgroundLoaded.value = false
+  if (!selectNextCodeWorkspaceBackground()) {
+    stopCodeWorkspaceBackgroundRotation()
+  }
+}
 
 // 对话历史相关
 const loadingHistory = ref(false)
@@ -940,40 +1035,6 @@ const handleCopyLiveCode = () => {
     message.success(`已复制 ${currentLiveFile.value.name} 源码到剪贴板`)
   }
 }
-
-// 根据文件扩展名推断 highlight.js 语言
-const getLanguageFromFileName = (fileName: string): string => {
-  const ext = fileName.split('.').pop()?.toLowerCase() || ''
-  const langMap: Record<string, string> = {
-    html: 'html', htm: 'html',
-    css: 'css', scss: 'scss', sass: 'sass', less: 'less',
-    js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
-    ts: 'typescript', tsx: 'typescript',
-    vue: 'xml', json: 'json', xml: 'xml',
-    md: 'markdown', yml: 'yaml', yaml: 'yaml',
-    sh: 'bash', bash: 'bash',
-  }
-  return langMap[ext] || ''
-}
-
-// 语法高亮后的 HTML
-const highlightedCode = computed(() => {
-  const content = currentLiveFile.value?.content
-  if (!content) return ''
-  // 生成中用纯文本转义，避免 hljs 每 120ms 全量高亮导致卡顿
-  if (isGenerating.value) {
-    return content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  }
-  const lang = getLanguageFromFileName(currentLiveFile.value!.name)
-  try {
-    if (lang && hljs.getLanguage(lang)) {
-      return hljs.highlight(content, { language: lang }).value
-    }
-    return hljs.highlightAuto(content).value
-  } catch {
-    return content.replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  }
-})
 
 // 生成中切换文件时，拉取该文件的实际内容
 watch(activeLiveFile, (newFile) => {
@@ -1737,7 +1798,7 @@ const loadChatHistory = async (isLoadMore = false) => {
               type: (chat.messageType === 'user' ? 'user' : 'ai') as 'user' | 'ai',
               content:
                   chat.messageType === 'user'
-                      ? chat.message || ''
+                      ? stripInternalGenerationInstructions(chat.message || '')
                       : normalizeAiHistoryContent(chat.message),
               createTime: chat.createTime,
             }))
@@ -1865,8 +1926,16 @@ const fetchAppInfo = async () => {
   }
 }
 
+const stripInternalGenerationInstructions = (content: string) => content
+  .replace(/\n*<generation_requirements>[\s\S]*?<\/generation_requirements>/g, '')
+  .replace(/\n*<image_asset_policy>[\s\S]*?<\/image_asset_policy>/g, '')
+  .replace(/\n*<available_resources>[\s\S]*?<\/available_resources>/g, '')
+  .trim()
+
 // 发送初始消息
 const sendInitialMessage = async (prompt: string) => {
+  const generationPrompt = prompt
+
   // 添加用户消息
   messages.value.push({
     type: 'user',
@@ -1889,7 +1958,29 @@ const sendInitialMessage = async (prompt: string) => {
 
   // 开始生成
   isGenerating.value = true
-  await generateCode(prompt, aiMessageIndex)
+  await generateCode(generationPrompt, aiMessageIndex)
+}
+
+// 与后端 ResourcePromptAssembler 保持相同的资源协议：代码生成提示词只会把
+// <available_resources> 中的 URL 当作可直接写入页面的图片资源。
+const buildUploadedImageResourcePrompt = (images: { url: string; name: string }[]) => {
+  const resources = images
+    .filter((image) => image.url.trim())
+    .map((image) => `- [CONTENT] 用户上传图片：${image.name} | URL: ${image.url}`)
+    .join('\n')
+
+  if (!resources) return ''
+
+  return `
+
+<image_asset_policy>
+以下为用户明确提供的图片资源。生成页面时必须使用这些 URL；所有 img src 或 CSS background-image 中的图片 URL 必须从 available_resources 原样复制，不得编造、替换或忽略。
+</image_asset_policy>
+
+<available_resources>
+请先将下列图片分配到与用户需求匹配的 Hero、轮播、卡片、文章或团队等区域。图片位不足时可复用；没有合适图片时使用内联 SVG、文字或布局元素兜底，不要使用外部占位图。
+${resources}
+</available_resources>`
 }
 
 // 发送消息
@@ -1898,11 +1989,11 @@ const sendMessage = async () => {
     return
   }
 
-  let message = userInput.value.trim()
-  // 将上传的图片 URL 拼接到消息中
+  const displayMessage = userInput.value.trim()
+  let message = displayMessage
+  // 按后端推荐提示词的资源协议注入上传图片，确保修改模式也会采用这些真实资源。
   if (uploadedImages.value.length > 0) {
-    const imageUrls = uploadedImages.value.map(img => img.url)
-    message += `\n\n参考图片：\n${imageUrls.map(url => `- ${url}`).join('\n')}`
+    message += buildUploadedImageResourcePrompt(uploadedImages.value)
     uploadedImages.value = []
   }
   // 将上传的文件 URL 拼接到消息中
@@ -1927,7 +2018,7 @@ const sendMessage = async () => {
   // 添加用户消息（包含元素信息）
   messages.value.push({
     type: 'user',
-    content: message,
+    content: displayMessage,
     createTime: new Date().toISOString(),
   })
 
@@ -2022,6 +2113,10 @@ const parseSseMessage = (raw: string): { type: string; data: string; filePath?: 
 
 // 生成代码 - 使用 EventSource 处理流式响应
 const generateCode = async (userMessage: string, aiMessageIndex: number) => {
+  activeEventSource?.close()
+  activeEventSource = null
+  codeAutoFollow.value = true
+  startCodeWorkspaceBackgroundRotation()
   let eventSource: EventSource | null = null
   let streamCompleted = false
   let renderTimer: number | undefined
@@ -2046,10 +2141,11 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
   // 计算预期的新版本号：后端创建版本 = 当前最新版本 + 1
   // 后端在收到 SSE 请求时才创建版本，这里提前算好避免时序问题
-  const preGenVersion = appVersions.value[0]?.version
-  const isModification = !!preGenVersion
-  if (preGenVersion) {
-    generatingVersion.value = preGenVersion + 1
+  const sourceVersion = selectedVersion.value || latestVersion.value
+  const latestVersionBeforeGeneration = appVersions.value[0]?.version
+  const isModification = !!sourceVersion
+  if (latestVersionBeforeGeneration) {
+    generatingVersion.value = latestVersionBeforeGeneration + 1
   } else {
     generatingVersion.value = 1
   }
@@ -2063,11 +2159,22 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       appId: appId.value || '',
       message: userMessage,
     })
+    if (sourceVersion) {
+      params.set('sourceVersion', String(sourceVersion))
+    }
     const url = `${baseURL}/app/chat/gen/code?${params}`
 
     eventSource = new EventSource(url, {
       withCredentials: true,
     })
+    activeEventSource = eventSource
+
+    const closeEventSource = () => {
+      eventSource?.close()
+      if (activeEventSource === eventSource) {
+        activeEventSource = null
+      }
+    }
 
     // 刷新 UI 内容
     const flushContent = () => {
@@ -2164,6 +2271,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
     const finishGeneration = () => {
       if (streamCompleted) return
 
+      const completedVersion = generatingVersion.value
       streamCompleted = true
       stopStatusTicker()
       if (renderTimer !== undefined) {
@@ -2196,7 +2304,11 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       isGenerating.value = false
       isVueGenMode.value = false
       generatingVersion.value = undefined
-      eventSource?.close()
+      stopCodeWorkspaceBackgroundRotation()
+      if (completedVersion) {
+        selectedVersion.value = completedVersion
+      }
+      closeEventSource()
 
       // 刷新应用信息和版本列表
       setTimeout(async () => {
@@ -2227,7 +2339,8 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       isGenerating.value = false
       isVueGenMode.value = false
       generatingVersion.value = undefined
-      eventSource?.close()
+      stopCodeWorkspaceBackgroundRotation()
+      closeEventSource()
       messages.value[aiMessageIndex].content = `❌ ${errorMessage}`
       messages.value[aiMessageIndex].loading = false
       message.error(errorMessage)
@@ -2242,8 +2355,9 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         versionListRefreshed = true
         loadAppVersions().then(() => {
           const actualVersion = appVersions.value[0]?.version
-          if (actualVersion && actualVersion !== generatingVersion.value) {
+          if (actualVersion) {
             generatingVersion.value = actualVersion
+            selectedVersion.value = actualVersion
             // 版本号更新后，重新拉取已写入文件的内容
             for (const f of writtenFiles) {
               if (!fileContentMap.value.has(f)) {
@@ -2385,21 +2499,16 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         finishGeneration()
         return
       }
+      // SSE 在服务端主动关闭时也可能触发 error；已有代码输出时视为本轮已结束，
+      // 避免把已完成的生成错误标记为“连接中断”。
       if (aiText || writtenFiles.length > 0) {
-        const msg = messages.value[aiMessageIndex]
-        if (msg) {
-          msg.content = [
-            buildGenerationStatusMessage(aiText, pendingFile, writtenFiles, devServerUrl, generatingMessageTick, appInfo.value?.codeGenType),
-            '连接正在等待后端继续返回预览地址，请不要刷新页面。',
-          ].join('\n\n')
-          msg.loading = true
-        }
+        finishGeneration()
         return
       }
-
-      eventSource?.close()
-      stopStatusTicker()
-      handleError(new Error('SSE连接错误'), aiMessageIndex)
+      closeEventSource()
+      handleBusinessError(JSON.stringify({
+        message: '与后端连接中断，本次任务已停止，请重试。',
+      }))
     }
   } catch (error) {
     if (statusTimer !== undefined) {
@@ -2408,6 +2517,11 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
     if (renderTimer !== undefined) {
       window.clearTimeout(renderTimer)
     }
+    eventSource?.close()
+    if (activeEventSource === eventSource) {
+      activeEventSource = null
+    }
+    stopCodeWorkspaceBackgroundRotation()
     console.error('创建 EventSource 失败:', error)
     handleError(error, aiMessageIndex)
   }
@@ -2422,6 +2536,7 @@ const handleError = (error: unknown, aiMessageIndex: number) => {
   isGenerating.value = false
   isVueGenMode.value = false
   generatingVersion.value = undefined
+  stopCodeWorkspaceBackgroundRotation()
 }
 
 // 更新预览
@@ -2462,12 +2577,71 @@ const loadPreview = () => {
   }, 12000)
 }
 
-// 滚动到底部
-const scrollToBottom = () => {
-  if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-  }
+// 用户停留在代码底部时自动跟随；主动上滚后暂停，避免打断阅读
+const handleCodeViewerScroll = () => {
+  const element = codeViewerContainer.value
+  if (!element) return
+
+  const distanceToBottom = element.scrollHeight - element.clientHeight - element.scrollTop
+  codeAutoFollow.value = distanceToBottom <= CODE_BOTTOM_THRESHOLD
 }
+
+const scrollCodeToBottom = (force = false) => {
+  if (!force && !codeAutoFollow.value) return
+
+  nextTick(() => {
+    if (codeScrollFrame !== undefined) {
+      cancelAnimationFrame(codeScrollFrame)
+    }
+    codeScrollFrame = requestAnimationFrame(() => {
+      codeScrollFrame = undefined
+      const element = codeViewerContainer.value
+      if (!element || (!force && !codeAutoFollow.value)) return
+      element.scrollTop = element.scrollHeight
+    })
+  })
+}
+
+const resumeCodeAutoFollow = () => {
+  codeAutoFollow.value = true
+  scrollCodeToBottom(true)
+}
+
+// 滚动消息对话框到底部
+const scrollToBottom = () => {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      if (messagesContainer.value) {
+        messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+      }
+    })
+  })
+}
+
+// 内容增长时跟随末尾，切换文件时默认展示该文件的最新内容
+watch(
+  () => [currentLiveFile.value?.name, currentLiveFile.value?.content] as const,
+  ([fileName], [oldFileName]) => {
+    if (fileName !== oldFileName) {
+      codeAutoFollow.value = true
+    }
+    if (isGenerating.value) {
+      scrollCodeToBottom()
+    }
+  },
+  { flush: 'post' },
+)
+
+// 监听消息列表变化（流式刷新），自动将对话滚动条推至最底部
+watch(
+  messages,
+  () => {
+    if (isGenerating.value) {
+      scrollToBottom()
+    }
+  },
+  { deep: true },
+)
 
 // 下载代码
 const downloadCode = async () => {
@@ -2840,12 +3014,29 @@ const saveInlineEdit = async () => {
   try {
     const doc = iframe.contentDocument
     if (!doc) throw new Error('无法访问页面内容')
-    const html = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML
-    const baseURL = request.defaults.baseURL || API_BASE_URL
-    await request.post(`${baseURL}/app/${appId.value}/version/${selectedVersion.value}/save-file`, {
+    const documentClone = doc.documentElement.cloneNode(true) as HTMLElement
+    const bodyClone = documentClone.querySelector('body')
+    if (bodyClone) {
+      bodyClone.removeAttribute('contenteditable')
+      bodyClone.style.removeProperty('outline')
+      if (!bodyClone.getAttribute('style')?.trim()) {
+        bodyClone.removeAttribute('style')
+      }
+    }
+    documentClone
+      .querySelectorAll('#visual-edit-script, #edit-mode-styles, #edit-tip, #edit-tip-styles')
+      .forEach((element) => element.remove())
+    documentClone
+      .querySelectorAll('.edit-hover, .edit-selected')
+      .forEach((element) => element.classList.remove('edit-hover', 'edit-selected'))
+    const html = '<!DOCTYPE html>\n' + documentClone.outerHTML
+    const response = await request.post(`/app/${appId.value}/version/${selectedVersion.value}/save-file`, {
       filePath: 'index.html',
       content: html,
     }, { timeout: 15000 })
+    if (response.data?.code !== 0 || response.data?.data !== true) {
+      throw new Error(response.data?.message || '保存失败')
+    }
     message.success('修改已保存')
     // 退出编辑模式
     doc.body.contentEditable = 'false'
@@ -2877,8 +3068,15 @@ onUnmounted(() => {
   if (previewLoadTimer !== undefined) {
     window.clearTimeout(previewLoadTimer)
   }
+  if (codeScrollFrame !== undefined) {
+    cancelAnimationFrame(codeScrollFrame)
+  }
+  stopCodeWorkspaceBackgroundRotation()
   clearNameRefreshTimer()
-  // EventSource 会在组件卸载时自动清理
+  const eventSourceToClose = activeEventSource
+  activeEventSource = null
+  isGenerating.value = false
+  eventSourceToClose?.close()
 })
 </script>
 
@@ -4449,17 +4647,60 @@ onUnmounted(() => {
 
 /* ===== 文件浏览器（生成中中间面板） ===== */
 .file-explorer {
+  position: relative;
+  isolation: isolate;
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
+  background-color: #0f172a;
+}
+
+.code-workspace-background,
+.code-workspace-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.code-workspace-background {
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.code-workspace-background.loaded {
+  opacity: 1;
+}
+
+.code-workspace-scrim {
+  z-index: 1;
+  background: linear-gradient(120deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.18));
+}
+
+.file-explorer > :not(.code-workspace-background):not(.code-workspace-scrim) {
+  position: relative;
+  z-index: 2;
+}
+
+.file-explorer .panel-header {
+  border-bottom-color: rgba(226, 232, 240, 0.2);
+  background: rgba(15, 23, 42, 0.2);
+}
+
+.file-explorer .panel-title,
+.file-explorer .code-panel-meta {
+  color: #f8fafc;
 }
 
 .file-explorer-body {
   flex: 1;
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-columns: minmax(168px, 22%) minmax(0, 1fr);
   overflow: hidden;
   min-height: 0;
 }
@@ -4467,8 +4708,8 @@ onUnmounted(() => {
 .file-tree {
   min-width: 0;
   overflow-y: auto;
-  border-right: 1px solid var(--border);
-  background: var(--surface-2);
+  border-right: 1px solid rgba(226, 232, 240, 0.2);
+  background: rgba(15, 23, 42, 0.18);
 }
 
 .file-tree-item {
@@ -4478,9 +4719,9 @@ onUnmounted(() => {
   min-height: 34px;
   padding: 8px 12px;
   border: 0;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.14);
   background: transparent;
-  color: var(--text-2);
+  color: #e2e8f0;
   font-size: 12px;
   line-height: 1.4;
   text-align: left;
@@ -4491,14 +4732,15 @@ onUnmounted(() => {
 }
 
 .file-tree-item:hover {
-  background: rgba(14, 165, 233, 0.08);
-  color: var(--brand-600);
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
 }
 
 .file-tree-item.active {
-  background: var(--surface);
-  color: var(--brand-600);
-  font-weight: 700;
+  background: rgba(14, 165, 233, 0.26);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: inset 3px 0 #38bdf8;
 }
 
 .file-tree-icon {
@@ -4521,16 +4763,19 @@ onUnmounted(() => {
   justify-content: center;
   gap: 8px;
   padding: 24px 12px;
-  color: var(--text-3);
+  color: #cbd5e1;
   font-size: 12px;
 }
 
 .code-viewer {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  background: rgba(15, 23, 42, 0.14);
+  color: #f8fafc;
 }
 
 .code-viewer-header {
@@ -4539,8 +4784,8 @@ onUnmounted(() => {
   justify-content: space-between;
   min-height: 42px;
   padding: 0 16px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
-  background: var(--surface-2);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.18);
+  background: rgba(15, 23, 42, 0.2);
 }
 
 .code-viewer-header-left {
@@ -4558,7 +4803,7 @@ onUnmounted(() => {
 .code-viewer-file {
   min-width: 0;
   overflow: hidden;
-  color: var(--text-1);
+  color: #ffffff;
   font-size: 13.5px;
   font-weight: 700;
   text-overflow: ellipsis;
@@ -4569,29 +4814,60 @@ onUnmounted(() => {
 .code-viewer-badge {
   font-size: 11px;
   font-weight: 600;
-  color: var(--brand-600);
-  background: rgba(14, 165, 233, 0.08);
-  border: 1px solid rgba(14, 165, 233, 0.2);
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   padding: 2px 8px;
   border-radius: var(--radius-full);
 }
 
+.code-panel-meta,
 .code-viewer-header-right {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
+.code-panel-meta {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.code-sync-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #15803d;
+}
+
+.code-sync-status.paused {
+  color: #b45309;
+}
+
+.code-sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12);
+}
+
+.code-sync-status.paused .code-sync-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.12);
+}
+
 .code-copy-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-height: 28px;
   padding: 4px 10px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-2);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  color: #f8fafc;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(226, 232, 240, 0.24);
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s;
@@ -4609,7 +4885,7 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--text-3);
+  color: #e2e8f0;
   font-size: 13px;
 }
 
@@ -4624,7 +4900,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  color: var(--text-3);
+  color: #e2e8f0;
   font-size: 13px;
 }
 
@@ -4636,22 +4912,105 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   margin: 0;
-  padding: 14px;
+  padding: 16px 18px;
   overflow: auto;
-  background: #ffffff;
-  color: #24292e;
+  background: rgba(15, 23, 42, 0.08);
+  color: #f8fafc;
   font-family: 'Fira Code', Consolas, Monaco, 'Courier New', monospace;
-  font-size: 12.5px;
-  line-height: 1.65;
+  font-size: 13px;
+  line-height: 1.7;
   white-space: pre;
   tab-size: 2;
 }
 
 .code-viewer-content code {
+  display: block;
+  min-width: max-content;
   color: inherit;
   background: none;
   padding: 0;
   text-shadow: none;
+}
+
+.code-follow-btn {
+  position: absolute;
+  right: 20px;
+  bottom: 18px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid rgba(14, 165, 233, 0.28);
+  border-radius: var(--radius-full);
+  background: rgba(15, 23, 42, 0.82);
+  color: #bae6fd;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
+}
+
+.code-follow-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+}
+
+.file-tree,
+.code-viewer-content,
+.source-file-panel,
+.source-code-view {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.file-tree::-webkit-scrollbar,
+.code-viewer-content::-webkit-scrollbar,
+.source-file-panel::-webkit-scrollbar,
+.source-code-view::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.file-tree::-webkit-scrollbar-track,
+.code-viewer-content::-webkit-scrollbar-track,
+.source-file-panel::-webkit-scrollbar-track,
+.source-code-view::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.file-tree::-webkit-scrollbar-thumb,
+.code-viewer-content::-webkit-scrollbar-thumb,
+.source-file-panel::-webkit-scrollbar-thumb,
+.source-code-view::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--radius-full);
+  background: #cbd5e1;
+  background-clip: padding-box;
+}
+
+.file-tree::-webkit-scrollbar-thumb:hover,
+.code-viewer-content::-webkit-scrollbar-thumb:hover,
+.source-file-panel::-webkit-scrollbar-thumb:hover,
+.source-code-view::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+  background-clip: padding-box;
+}
+
+.file-explorer .file-tree,
+.file-explorer .code-viewer-content {
+  scrollbar-color: rgba(226, 232, 240, 0.6) transparent;
+}
+
+.file-explorer .file-tree::-webkit-scrollbar-thumb,
+.file-explorer .code-viewer-content::-webkit-scrollbar-thumb {
+  background: rgba(226, 232, 240, 0.6);
+  background-clip: padding-box;
 }
 
 .file-explorer-empty {

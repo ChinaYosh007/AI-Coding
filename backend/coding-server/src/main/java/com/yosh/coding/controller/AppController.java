@@ -39,6 +39,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -324,15 +326,18 @@ public class AppController {
     @RateLimit( rate = 5, rateInterval = 60, limitType = RateLimitType.USER,message = "请求过于频繁，请稍后再试")
     public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,
                                                        @RequestParam String message,
+                                                       @RequestParam(required = false) Long sourceVersion,
                                                        HttpServletRequest request) {
         // 参数校验
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID无效");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "用户消息不能为空");
+        ThrowUtils.throwIf(sourceVersion != null && sourceVersion <= 0,
+                ErrorCode.PARAMS_ERROR, "源版本号无效");
         // 获取当前登录用户
         LoginUserVO loginUser = userService.getLoginUser(request);
         // 调用服务生成代码（流式）
         try {
-            Flux<String> flux = appService.chatToGenCode(appId, message, loginUser);
+            Flux<String> flux = appService.chatToGenCode(appId, message, sourceVersion, loginUser);
             return flux.map(chunk ->{
                 Map<String,String> map = Map.of("d",chunk);
                 String json = JSONUtil.toJsonStr(map);
@@ -465,8 +470,14 @@ public class AppController {
         String sourcePath = appVersion.getSourcePath();
         ThrowUtils.throwIf(StrUtil.isBlank(sourcePath), ErrorCode.NOT_FOUND_ERROR);
 
-        File targetFile = new File(sourcePath, requestBody.getFilePath());
-        cn.hutool.core.io.FileUtil.writeUtf8String(requestBody.getContent() == null ? "" : requestBody.getContent(), targetFile);
+        Path requestedPath = Paths.get(requestBody.getFilePath());
+        ThrowUtils.throwIf(requestedPath.isAbsolute(), ErrorCode.PARAMS_ERROR, "文件路径无效");
+        Path projectRoot = Paths.get(sourcePath).toAbsolutePath().normalize();
+        Path targetPath = projectRoot.resolve(requestedPath).normalize();
+        ThrowUtils.throwIf(!targetPath.startsWith(projectRoot), ErrorCode.PARAMS_ERROR, "文件路径无效");
+        cn.hutool.core.io.FileUtil.writeUtf8String(
+                requestBody.getContent() == null ? "" : requestBody.getContent(),
+                targetPath.toFile());
 
         return ResultUtils.success(true);
     }

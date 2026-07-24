@@ -4,6 +4,7 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import com.yosh.coding.core.saver.PlaceholderImageUrlSanitizer;
+import com.yosh.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
@@ -17,16 +18,26 @@ public class WriteToFile extends BaseTool {
 
     private final Long appId;
     private final Long version;
+    private final CodeGenTypeEnum codeGenType;
     private final List<String> resourceUrls;
     private int invocationCount = 0;
 
     public WriteToFile(Long appId, Long version) {
-        this(appId, version, List.of());
+        this(appId, version, CodeGenTypeEnum.VUE_PROJECT, List.of());
     }
 
     public WriteToFile(Long appId, Long version, List<String> resourceUrls) {
+        this(appId, version, CodeGenTypeEnum.VUE_PROJECT, resourceUrls);
+    }
+
+    public WriteToFile(Long appId, Long version, CodeGenTypeEnum codeGenType) {
+        this(appId, version, codeGenType, List.of());
+    }
+
+    public WriteToFile(Long appId, Long version, CodeGenTypeEnum codeGenType, List<String> resourceUrls) {
         this.appId = appId;
         this.version = version;
+        this.codeGenType = codeGenType;
         this.resourceUrls = resourceUrls == null ? List.of() : List.copyOf(resourceUrls);
     }
 
@@ -55,7 +66,7 @@ public class WriteToFile extends BaseTool {
             // 清理 content 中的 UTF-8 BOM 字符（大模型接口有时会在返回内容的开头带上 ﻿）
             // BOM 会导致 Vite/PostCSS 的 JSON 解析器报 "Unexpected token '﻿'" 错误
             String cleanContent = PlaceholderImageUrlSanitizer.sanitize(removeBOM(content), resourceUrls);
-            Path path = resolveProjectPath(appId, version, relativePath);
+            Path path = resolveProjectPath(appId, version, codeGenType, relativePath);
             Path parent = path.getParent();
             if (parent != null) {
                 FileUtil.mkdir(parent.toFile());

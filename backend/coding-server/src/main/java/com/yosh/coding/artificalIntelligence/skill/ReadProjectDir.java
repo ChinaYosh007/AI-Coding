@@ -2,6 +2,7 @@ package com.yosh.coding.artificalIntelligence.skill;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
+import com.yosh.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
@@ -15,9 +16,16 @@ import java.util.Set;
 public class ReadProjectDir  extends BaseTool{
     private final Long appId;
     private final Long version;
+    private final CodeGenTypeEnum codeGenType;
+
     public ReadProjectDir(Long appId, Long version) {
+        this(appId, version, CodeGenTypeEnum.VUE_PROJECT);
+    }
+
+    public ReadProjectDir(Long appId, Long version, CodeGenTypeEnum codeGenType) {
         this.appId = appId;
         this.version = version;
+        this.codeGenType = codeGenType;
     }
     /**
 
@@ -38,9 +46,9 @@ public class ReadProjectDir  extends BaseTool{
     @Tool("List project files and return paths relative to the project root. Call this at most once before reading a target file.")
     public String readProjectDir(@P("path - Relative directory path, use '.' for the project root") String relativePath) {
         try {
-            Path projectRoot = getProjectRoot(appId, version);
+            Path projectRoot = getProjectRoot(appId, version, codeGenType);
             String requestedPath = StrUtil.blankToDefault(relativePath, ".");
-            Path path = resolveProjectPath(appId, version, requestedPath);
+            Path path = resolveProjectPath(appId, version, codeGenType, requestedPath);
             if (!path.toFile().exists()) {
                 return "File does not exist: " + relativePath;
             }

@@ -30,8 +30,13 @@ public class LogoGeneratorSkill {
     public List<ImageResource> generateLogos(@P("Logo 设计描述，如名称、行业、风格等，尽量详细") String description) {
         List<ImageResource> logoList = new ArrayList<>();
         try {
-            // 构建 Logo 设计提示词
-            String logoPrompt = String.format("生成 Logo，Logo 中禁止包含任何文字！Logo 介绍：%s", description);
+            String logoPrompt = """
+                    为网站导航栏生成一个可直接使用的品牌图形标志。
+                    只生成一个简洁、清晰、居中的图形符号，不得包含任何文字、字母、数字、标语、水印或排版内容。
+                    禁止生成白色方块底、卡片、边框、设备模型、名片、网页截图、按钮或 UI 组件；不要把标志放进方形容器。
+                    使用扁平、矢量感、边缘清晰的图形，保留安全留白，确保缩小到导航栏尺寸时仍清楚可辨。图形本体保持干净，不加入模糊效果。
+                    网站需求：%s
+                    """.formatted(description);
             ImageSynthesisParam param = ImageSynthesisParam.builder()
                     .apiKey(dashScopeApiKey)
                     .model(imageModel)
